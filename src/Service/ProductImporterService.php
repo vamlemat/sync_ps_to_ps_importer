@@ -636,10 +636,7 @@ class ProductImporterService
         }
         
         // Buscar por nombre
-        $sql = 'SELECT f.id_feature FROM `' . _DB_PREFIX_ . 'feature` f
-                INNER JOIN `' . _DB_PREFIX_ . 'feature_lang` fl ON (f.id_feature = fl.id_feature)
-                WHERE fl.name = "' . pSQL($featureName) . '" AND fl.id_lang = 1
-                LIMIT 1';
+        $sql = 'SELECT f.id_feature FROM `' . _DB_PREFIX_ . 'feature` f INNER JOIN `' . _DB_PREFIX_ . 'feature_lang` fl ON (f.id_feature = fl.id_feature) WHERE fl.name = "' . pSQL($featureName) . '" AND fl.id_lang = 1 LIMIT 1';
         $featureId = (int)\Db::getInstance()->getValue($sql);
         
         if ($featureId) {
@@ -680,10 +677,7 @@ class ProductImporterService
         }
         
         // Buscar por nombre y característica
-        $sql = 'SELECT id_feature_value FROM `' . _DB_PREFIX_ . 'feature_value`
-                WHERE id_feature = ' . (int)$featureId . '
-                AND value = "' . pSQL($valueName) . '"
-                LIMIT 1';
+        $sql = 'SELECT id_feature_value FROM `' . _DB_PREFIX_ . 'feature_value` WHERE id_feature = ' . (int)$featureId . ' AND value = "' . pSQL($valueName) . '" LIMIT 1';
         $valueId = (int)\Db::getInstance()->getValue($sql);
         
         if ($valueId) {
@@ -739,10 +733,7 @@ class ProductImporterService
                 : ($remoteCategory['name'] ?? 'Categoría ' . $remoteCategoryId);
             
             // Buscar si ya existe localmente por nombre
-            $sql = 'SELECT c.id_category FROM `' . _DB_PREFIX_ . 'category` c
-                    INNER JOIN `' . _DB_PREFIX_ . 'category_lang` cl ON (c.id_category = cl.id_category)
-                    WHERE cl.name = "' . pSQL($categoryName) . '" AND cl.id_lang = 1
-                    LIMIT 1';
+            $sql = 'SELECT c.id_category FROM `' . _DB_PREFIX_ . 'category` c INNER JOIN `' . _DB_PREFIX_ . 'category_lang` cl ON (c.id_category = cl.id_category) WHERE cl.name = "' . pSQL($categoryName) . '" AND cl.id_lang = 1 LIMIT 1';
             $localCategoryId = (int)\Db::getInstance()->getValue($sql);
             
             if ($localCategoryId) {
