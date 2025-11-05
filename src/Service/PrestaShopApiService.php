@@ -39,6 +39,14 @@ class PrestaShopApiService
     {
         $this->debug = $debug;
     }
+    
+    /**
+     * Obtener URL de API
+     */
+    public function getApiUrl()
+    {
+        return $this->apiUrl;
+    }
 
     /**
      * Hacer petición GET al webservice
@@ -261,19 +269,64 @@ class PrestaShopApiService
     {
         $url = $this->apiUrl . "/api/images/products/$productId/$imageId";
         
+        // Usar la MISMA configuración que makeRequest()
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
         curl_setopt($ch, CURLOPT_USERPWD, $this->apiKey . ':');
+        
+        // SSL
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        
+        // Forzar IPv4
+        curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+        
+        // Timeouts
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+        
+        // Seguir redirecciones
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_MAXREDIRS, 5);
+        
+        // User Agent
+        curl_setopt($ch, CURLOPT_USERAGENT, 'PrestaShop-Sync-Module/1.0');
+        
+        // DNS cache
+        curl_setopt($ch, CURLOPT_DNS_CACHE_TIMEOUT, 120);
+        
+        // *** IMPORTANTE: Si hay IP personalizada, usarla ***
+        if ($this->customIp && $this->domain) {
+            $parsed = parse_url($url);
+            $port = $parsed['port'] ?? ($parsed['scheme'] === 'https' ? 443 : 80);
+            $resolve = ["{$this->domain}:{$port}:{$this->customIp}"];
+            curl_setopt($ch, CURLOPT_RESOLVE, $resolve);
+            
+            if ($this->debug) {
+                error_log("Download image using custom IP: {$this->domain}:{$port} -> {$this->customIp}");
+            }
+        }
 
         $imageData = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
+        $errorNo = curl_errno($ch);
+        
+        if ($this->debug) {
+            error_log("Download image - URL: $url");
+            error_log("Download image - HTTP Code: $httpCode");
+            error_log("Download image - Size: " . strlen($imageData) . " bytes");
+            if ($error) {
+                error_log("Download image - Error: $error (Code: $errorNo)");
+            }
+        }
+        
         curl_close($ch);
 
-        if ($httpCode !== 200) {
+        if ($httpCode !== 200 || $error) {
+            error_log("Error downloading image $productId/$imageId: HTTP $httpCode, Error: $error");
             return false;
         }
 

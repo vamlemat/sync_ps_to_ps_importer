@@ -152,13 +152,18 @@ class ProductImporterService
                 $warnings[] = "Stock: " . $e->getMessage();
             }
 
-            // PASO 8: Importar imágenes
+            // 8. Importar imágenes (activar debug)
             $this->errors[] = "[8/9] Importando imágenes...";
             try {
+                // Activar debug para ver qué pasa con las imágenes
+                $this->apiService->setDebug(true);
                 $imageCount = $this->importImagesSimple($product, $remoteProduct);
+                $this->apiService->setDebug(false);
                 $this->errors[] = "✓ Imágenes: $imageCount importadas";
             } catch (\Exception $e) {
+                $this->apiService->setDebug(false);
                 $warnings[] = "Imágenes: " . $e->getMessage();
+                $this->errors[] = "ERROR en imágenes: " . $e->getMessage();
             }
 
             // PASO 9: Importar características (deshabilitado temporalmente - muy lento)
@@ -191,6 +196,16 @@ class ProductImporterService
                 'line' => $e->getLine(),
                 'file' => basename($e->getFile())
             ];
+        } finally {
+            // Guardar logs en archivo para debugging
+            $logFile = _PS_MODULE_DIR_ . 'sync_ps_to_ps_importer/logs/import_log_' . date('Y-m-d') . '.txt';
+            $logDir = dirname($logFile);
+            if (!file_exists($logDir)) {
+                @mkdir($logDir, 0777, true);
+            }
+            $logContent = "\n=== " . date('H:i:s') . " - Producto $remoteProductId ===\n";
+            $logContent .= implode("\n", $this->errors) . "\n";
+            @file_put_contents($logFile, $logContent, FILE_APPEND);
         }
     }
 
@@ -224,14 +239,22 @@ class ProductImporterService
                 try {
                     // Descargar imagen desde la API (usar ID del producto REMOTO)
                     $remoteProductId = $remoteProduct['id'] ?? 0;
+                    $this->errors[] = "  Intentando descargar imagen $imageId del producto remoto $remoteProductId...";
+                    
                     $imageData = $this->apiService->downloadImage($remoteProductId, $imageId);
                     
-                    if (!$imageData || strlen($imageData) < 100) {
-                        $this->errors[] = "  Imagen $imageId: vacía o corrupta (" . strlen($imageData) . " bytes), omitida";
+                    $imageSize = $imageData ? strlen($imageData) : 0;
+                    $this->errors[] = "  Respuesta recibida: $imageSize bytes";
+                    
+                    if (!$imageData || $imageSize < 100) {
+                        $this->errors[] = "  ✗ Imagen $imageId: vacía o corrupta ($imageSize bytes)";
+                        $this->errors[] = "  URL: " . $this->apiService->getApiUrl() . "/api/images/products/$remoteProductId/$imageId";
+                        $this->errors[] = "  POSIBLE CAUSA: La API Key no tiene permisos para imágenes o el webservice no permite descargar imágenes.";
+                        $this->errors[] = "  SOLUCIÓN: Verifica en newgoparket.com → Configuración Avanzada → Webservice → que la API Key tenga permisos GET en 'images'";
                         continue;
                     }
                     
-                    $this->errors[] = "  Imagen $imageId descargada (" . strlen($imageData) . " bytes)";
+                    $this->errors[] = "  ✓ Imagen $imageId descargada correctamente ($imageSize bytes)";
                     
                     // Crear objeto Image de PrestaShop
                     $image = new \Image();
