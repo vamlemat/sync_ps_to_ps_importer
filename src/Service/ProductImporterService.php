@@ -514,11 +514,12 @@ class ProductImporterService
     }
 
     /**
-     * Importar características de forma optimizada
+     * Importar características CREÁNDOLAS si no existen
      */
     private function importFeaturesOptimized($product, $remoteProduct)
     {
         $imported = 0;
+        $created = 0;
         
         try {
             // Obtener características desde associations
@@ -533,9 +534,9 @@ class ProductImporterService
             // Eliminar características existentes del producto
             \Db::getInstance()->delete('feature_product', '`id_product` = ' . (int)$product->id);
             
-            // Obtener TODAS las características y valores locales de una vez (para evitar múltiples queries)
-            $localFeatures = $this->getAllLocalFeatures();
-            $localFeatureValues = $this->getAllLocalFeatureValues();
+            // Cache local de características
+            static $featureCache = [];
+            static $featureValueCache = [];
             
             foreach ($features as $featureData) {
                 try {
@@ -546,20 +547,63 @@ class ProductImporterService
                         continue;
                     }
                     
-                    // Por ahora, intentar usar los mismos IDs si existen
-                    // (esto funciona si las dos tiendas tienen las mismas características)
-                    if (isset($localFeatures[$remoteFeatureId]) && isset($localFeatureValues[$remoteFeatureValueId])) {
-                        // Insertar directamente
-                        \Db::getInstance()->insert('feature_product', [
-                            'id_feature' => $remoteFeatureId,
-                            'id_product' => (int)$product->id,
-                            'id_feature_value' => $remoteFeatureValueId
-                        ], false, true, \Db::INSERT_IGNORE);
-                        $imported++;
-                        $this->errors[] = "  ✓ Característica $remoteFeatureId = $remoteFeatureValueId asignada";
-                    } else {
-                        $this->errors[] = "  ⚠ Característica $remoteFeatureId o valor $remoteFeatureValueId no existe localmente";
+                    // PASO 1: Obtener datos de la característica remota
+                    $remoteFeature = isset($featureCache[$remoteFeatureId]) 
+                        ? $featureCache[$remoteFeatureId]
+                        : $this->apiService->getFeature($remoteFeatureId);
+                    
+                    if (!$remoteFeature) {
+                        $this->errors[] = "  ⚠ No se pudo obtener característica $remoteFeatureId desde API";
+                        continue;
                     }
+                    
+                    $featureCache[$remoteFeatureId] = $remoteFeature;
+                    
+                    $featureName = is_array($remoteFeature['name'] ?? null)
+                        ? ($remoteFeature['name'][1] ?? reset($remoteFeature['name']))
+                        : ($remoteFeature['name'] ?? '');
+                    
+                    // PASO 2: Buscar o crear la característica localmente
+                    $localFeatureId = $this->findOrCreateFeatureByName($featureName);
+                    
+                    if (!$localFeatureId) {
+                        $this->errors[] = "  ✗ No se pudo crear/encontrar característica '$featureName'";
+                        continue;
+                    }
+                    
+                    // PASO 3: Obtener datos del valor de característica remoto
+                    $remoteFeatureValue = isset($featureValueCache[$remoteFeatureValueId])
+                        ? $featureValueCache[$remoteFeatureValueId]
+                        : $this->apiService->getFeatureValue($remoteFeatureValueId);
+                    
+                    if (!$remoteFeatureValue) {
+                        $this->errors[] = "  ⚠ No se pudo obtener valor $remoteFeatureValueId desde API";
+                        continue;
+                    }
+                    
+                    $featureValueCache[$remoteFeatureValueId] = $remoteFeatureValue;
+                    
+                    $valueName = is_array($remoteFeatureValue['value'] ?? null)
+                        ? ($remoteFeatureValue['value'][1] ?? reset($remoteFeatureValue['value']))
+                        : ($remoteFeatureValue['value'] ?? '');
+                    
+                    // PASO 4: Buscar o crear el valor de característica localmente
+                    $localFeatureValueId = $this->findOrCreateFeatureValueByName($localFeatureId, $valueName);
+                    
+                    if (!$localFeatureValueId) {
+                        $this->errors[] = "  ✗ No se pudo crear/encontrar valor '$valueName'";
+                        continue;
+                    }
+                    
+                    // PASO 5: Asignar característica al producto
+                    \Db::getInstance()->insert('feature_product', [
+                        'id_feature' => $localFeatureId,
+                        'id_product' => (int)$product->id,
+                        'id_feature_value' => $localFeatureValueId
+                    ], false, true, \Db::INSERT_IGNORE);
+                    
+                    $imported++;
+                    $this->errors[] = "  ✓ '$featureName' = '$valueName' (Feature: $localFeatureId, Value: $localFeatureValueId)";
                     
                 } catch (\Exception $e) {
                     $this->errors[] = "  Error en característica: " . $e->getMessage();
@@ -567,51 +611,103 @@ class ProductImporterService
                 }
             }
             
-            if ($imported == 0) {
-                $this->errors[] = "  ⚠ Ninguna característica coincide. Las tiendas deben tener las mismas características creadas.";
-            }
-            
+            $this->errors[] = "  Total: $imported características asignadas";
             return $imported;
             
         } catch (\Exception $e) {
             throw new \Exception("Error general en características: " . $e->getMessage());
         }
     }
-
+    
     /**
-     * Obtener todas las características locales (caché)
+     * Buscar o crear característica por nombre
      */
-    private function getAllLocalFeatures()
+    private function findOrCreateFeatureByName($featureName)
     {
-        static $features = null;
-        
-        if ($features === null) {
-            $features = [];
-            $result = \Db::getInstance()->executeS('SELECT id_feature FROM `' . _DB_PREFIX_ . 'feature`');
-            foreach ($result as $row) {
-                $features[(int)$row['id_feature']] = true;
-            }
+        if (empty($featureName)) {
+            return 0;
         }
         
-        return $features;
+        // Cache
+        static $cache = [];
+        $cacheKey = md5($featureName);
+        if (isset($cache[$cacheKey])) {
+            return $cache[$cacheKey];
+        }
+        
+        // Buscar por nombre
+        $sql = 'SELECT f.id_feature FROM `' . _DB_PREFIX_ . 'feature` f
+                INNER JOIN `' . _DB_PREFIX_ . 'feature_lang` fl ON (f.id_feature = fl.id_feature)
+                WHERE fl.name = "' . pSQL($featureName) . '" AND fl.id_lang = 1
+                LIMIT 1';
+        $featureId = (int)\Db::getInstance()->getValue($sql);
+        
+        if ($featureId) {
+            $cache[$cacheKey] = $featureId;
+            return $featureId;
+        }
+        
+        // Crear nueva característica
+        $feature = new \Feature();
+        $languages = \Language::getLanguages(false);
+        foreach ($languages as $lang) {
+            $feature->name[$lang['id_lang']] = $featureName;
+        }
+        
+        if ($feature->add()) {
+            $this->errors[] = "    + Característica CREADA: '$featureName' (ID: {$feature->id})";
+            $cache[$cacheKey] = $feature->id;
+            return $feature->id;
+        }
+        
+        return 0;
     }
-
+    
     /**
-     * Obtener todos los valores de características locales (caché)
+     * Buscar o crear valor de característica por nombre
      */
-    private function getAllLocalFeatureValues()
+    private function findOrCreateFeatureValueByName($featureId, $valueName)
     {
-        static $featureValues = null;
-        
-        if ($featureValues === null) {
-            $featureValues = [];
-            $result = \Db::getInstance()->executeS('SELECT id_feature_value FROM `' . _DB_PREFIX_ . 'feature_value`');
-            foreach ($result as $row) {
-                $featureValues[(int)$row['id_feature_value']] = true;
-            }
+        if (empty($featureId) || empty($valueName)) {
+            return 0;
         }
         
-        return $featureValues;
+        // Cache
+        static $cache = [];
+        $cacheKey = $featureId . '_' . md5($valueName);
+        if (isset($cache[$cacheKey])) {
+            return $cache[$cacheKey];
+        }
+        
+        // Buscar por nombre y característica
+        $sql = 'SELECT id_feature_value FROM `' . _DB_PREFIX_ . 'feature_value`
+                WHERE id_feature = ' . (int)$featureId . '
+                AND value = "' . pSQL($valueName) . '"
+                LIMIT 1';
+        $valueId = (int)\Db::getInstance()->getValue($sql);
+        
+        if ($valueId) {
+            $cache[$cacheKey] = $valueId;
+            return $valueId;
+        }
+        
+        // Crear nuevo valor
+        $featureValue = new \FeatureValue();
+        $featureValue->id_feature = $featureId;
+        $featureValue->custom = 0;
+        
+        $languages = \Language::getLanguages(false);
+        foreach ($languages as $lang) {
+            $featureValue->value[$lang['id_lang']] = $valueName;
+        }
+        
+        if ($featureValue->add()) {
+            $this->errors[] = "    + Valor CREADO: '$valueName' (ID: {$featureValue->id})";
+            $cache[$cacheKey] = $featureValue->id;
+            return $featureValue->id;
+        }
+        
+        return 0;
     }
 
     /**
