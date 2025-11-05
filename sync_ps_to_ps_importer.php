@@ -63,14 +63,14 @@ class Sync_Ps_To_Ps_Importer extends Module
             $tab->name[$lang['id_lang']] = 'Sincronizador PS a PS';
         }
         
-        // El padre (ponlo donde quieras, -1 es el raíz)
-        // 10 es "Catálogo"
+        // El padre - "Catálogo"
         $tab->id_parent = (int)Tab::getIdFromClassName('AdminCatalog');
         $tab->module = $this->name;
         
-        // --- ESTE ES EL ARREGLO ---
-        // SOLO ponemos el nombre de la RUTA SYMFONY.
-        // Quitamos la línea "class_name" que causaba el conflicto.
+        // Nombre de clase único (requerido por PrestaShop)
+        $tab->class_name = 'AdminSyncPsToPsImporter';
+        
+        // Ruta de Symfony
         $tab->route_name = 'admin_sync_ps_to_ps_importer_panel'; 
         
         return $tab->add();
@@ -81,18 +81,14 @@ class Sync_Ps_To_Ps_Importer extends Module
      */
     public function uninstallTab(): bool
     {
-        // Buscamos el tab por route_name
-        $tabId = Db::getInstance()->getValue('
-            SELECT id_tab 
-            FROM ' . _DB_PREFIX_ . 'tab 
-            WHERE route_name = "admin_sync_ps_to_ps_importer_panel"
-        ');
+        // Buscamos el tab por class_name
+        $id_tab = (int)Tab::getIdFromClassName('AdminSyncPsToPsImporter');
         
-        if (!$tabId) {
+        if (!$id_tab) {
             return true;
         }
 
-        $tab = new Tab($tabId);
+        $tab = new Tab($id_tab);
         
         return $tab->delete();
     }
