@@ -1,0 +1,12 @@
+{
+  "name": "prestashop/sync_ps_to_ps_importer",
+  "autoload": {
+    "psr-4": {
+      "SyncPsToPsImporter\\": "src/"
+    }
+  },
+  "config": {
+    "prepend-autoloader": false
+  },
+  "type": "prestashop-module"
+}
