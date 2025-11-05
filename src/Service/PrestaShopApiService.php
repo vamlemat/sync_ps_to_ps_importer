@@ -175,8 +175,27 @@ class PrestaShopApiService
      */
     public function getProduct($id)
     {
-        $data = $this->makeRequest("products/$id", ['display' => 'full']);
-        return $data['product'] ?? null;
+        try {
+            $data = $this->makeRequest("products/$id", ['display' => 'full']);
+            
+            // La API puede devolver el producto de dos formas:
+            // 1. Como objeto único: {"product": {...}}
+            // 2. Como array de un elemento: {"products": [{...}]}
+            
+            if (isset($data['product'])) {
+                // Formato 1: objeto único
+                return $data['product'];
+            } elseif (isset($data['products']) && is_array($data['products']) && count($data['products']) > 0) {
+                // Formato 2: array con un elemento
+                return $data['products'][0];
+            } else {
+                error_log("API Response for product $id: " . print_r($data, true));
+                throw new \Exception("La respuesta de la API no contiene 'product' ni 'products'. Respuesta: " . json_encode($data));
+            }
+        } catch (\Exception $e) {
+            error_log("Error en getProduct($id): " . $e->getMessage());
+            throw $e;
+        }
     }
 
     /**
@@ -191,6 +210,27 @@ class PrestaShopApiService
         
         $data = $this->makeRequest('categories', $params);
         return $data['categories'] ?? [];
+    }
+    
+    /**
+     * Obtener una categoría por ID
+     */
+    public function getCategory($id)
+    {
+        try {
+            $data = $this->makeRequest("categories/$id", ['display' => 'full']);
+            
+            if (isset($data['category'])) {
+                return $data['category'];
+            } elseif (isset($data['categories']) && is_array($data['categories']) && count($data['categories']) > 0) {
+                return $data['categories'][0];
+            }
+            
+            return null;
+        } catch (\Exception $e) {
+            error_log("Error en getCategory($id): " . $e->getMessage());
+            return null;
+        }
     }
 
     /**
@@ -268,5 +308,48 @@ class PrestaShopApiService
             return [];
         }
     }
+
+    /**
+     * Obtener datos de una característica (feature)
+     */
+    public function getFeature($featureId)
+    {
+        try {
+            $data = $this->makeRequest("product_features/$featureId", ['display' => 'full']);
+            
+            if (isset($data['product_feature'])) {
+                return $data['product_feature'];
+            } elseif (isset($data['product_features']) && is_array($data['product_features']) && count($data['product_features']) > 0) {
+                return $data['product_features'][0];
+            }
+            
+            return null;
+        } catch (\Exception $e) {
+            error_log("Error en getFeature($featureId): " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Obtener datos de un valor de característica (feature value)
+     */
+    public function getFeatureValue($featureValueId)
+    {
+        try {
+            $data = $this->makeRequest("product_feature_values/$featureValueId", ['display' => 'full']);
+            
+            if (isset($data['product_feature_value'])) {
+                return $data['product_feature_value'];
+            } elseif (isset($data['product_feature_values']) && is_array($data['product_feature_values']) && count($data['product_feature_values']) > 0) {
+                return $data['product_feature_values'][0];
+            }
+            
+            return null;
+        } catch (\Exception $e) {
+            error_log("Error en getFeatureValue($featureValueId): " . $e->getMessage());
+            return null;
+        }
+    }
 }
+
 

@@ -89,8 +89,118 @@ class AdminImporterController extends AbstractController
      */
     public function importAction(Request $request)
     {
+        // Asegurar que siempre devolvemos JSON
+        try {
+            if (!$request->isXmlHttpRequest()) {
+                return new JsonResponse(['success' => false, 'message' => 'Petición inválida - no es AJAX']);
+            }
+
+            $apiUrl = \Configuration::get('SYNC_PS_REMOTE_URL');
+            $apiKey = \Configuration::get('SYNC_PS_API_KEY');
+            $customIp = \Configuration::get('SYNC_PS_CUSTOM_IP');
+
+            if (empty($apiUrl) || empty($apiKey)) {
+                return new JsonResponse([
+                    'success' => false,
+                    'message' => 'No hay configuración de API'
+                ]);
+            }
+
+            // Leer el JSON del body
+            $content = $request->getContent();
+            $data = json_decode($content, true);
+            
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                return new JsonResponse([
+                    'success' => false,
+                    'message' => 'Error al decodificar JSON: ' . json_last_error_msg()
+                ]);
+            }
+            
+            $productIds = $data['product_ids'] ?? [];
+            
+            if (empty($productIds)) {
+                return new JsonResponse([
+                    'success' => false,
+                    'message' => 'No se seleccionaron productos'
+                ]);
+            }
+
+            $apiService = new PrestaShopApiService($apiUrl, $apiKey);
+            
+            // Configurar IP personalizada si existe
+            if (!empty($customIp)) {
+                $apiService->setCustomIp($customIp);
+            }
+            
+            $importerService = new ProductImporterService($apiService);
+
+            // Importar productos
+            $results = $importerService->importMultipleProducts($productIds);
+            
+            // Contar éxitos y errores
+            $success = 0;
+            $errors = 0;
+            $messages = [];
+            $logs = [];
+            
+            foreach ($results as $productId => $result) {
+                if ($result['success']) {
+                    $success++;
+                    if (isset($result['warnings']) && !empty($result['warnings'])) {
+                        $messages[] = "Producto $productId importado con advertencias: " . implode(', ', $result['warnings']);
+                    }
+                } else {
+                    $errors++;
+                    // Mensaje principal del error
+                    $errorMsg = "Producto $productId: " . $result['message'];
+                    
+                    // Añadir información adicional si está disponible
+                    if (isset($result['file']) && isset($result['line'])) {
+                        $errorMsg .= " (Error en {$result['file']} línea {$result['line']})";
+                    }
+                    
+                    $messages[] = $errorMsg;
+                    
+                    // Guardar logs detallados para debugging
+                    if (isset($result['errors']) && !empty($result['errors'])) {
+                        $logs["Producto_$productId"] = $result['errors'];
+                    }
+                }
+            }
+
+            return new JsonResponse([
+                'success' => $errors === 0,
+                'message' => "$success productos importados correctamente" . ($errors > 0 ? ", $errors con errores" : ""),
+                'details' => [
+                    'success' => $success,
+                    'errors' => $errors,
+                    'messages' => $messages,
+                    'logs' => $logs
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return new JsonResponse([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
+    }
+
+    /**
+     * Test detallado de producto - AJAX
+     */
+    public function testProductAction(Request $request)
+    {
         if (!$request->isXmlHttpRequest()) {
             return new JsonResponse(['success' => false, 'message' => 'Petición inválida']);
+        }
+
+        $productId = $request->query->get('product_id');
+        
+        if (!$productId) {
+            return new JsonResponse(['success' => false, 'message' => 'No se proporcionó product_id']);
         }
 
         $apiUrl = \Configuration::get('SYNC_PS_REMOTE_URL');
@@ -112,49 +222,28 @@ class AdminImporterController extends AbstractController
                 $apiService->setCustomIp($customIp);
             }
             
-            $importerService = new ProductImporterService($apiService);
+            // Activar debug
+            $apiService->setDebug(true);
             
-            // Obtener IDs de productos a importar
-            $productIds = $request->request->get('product_ids', []);
+            // Intentar obtener el producto
+            $product = $apiService->getProduct($productId);
             
-            if (empty($productIds)) {
-                return new JsonResponse([
-                    'success' => false,
-                    'message' => 'No se seleccionaron productos'
-                ]);
-            }
-
-            // Importar productos
-            $results = $importerService->importMultipleProducts($productIds);
-            
-            // Contar éxitos y errores
-            $success = 0;
-            $errors = 0;
-            $messages = [];
-            
-            foreach ($results as $productId => $result) {
-                if ($result['success']) {
-                    $success++;
-                } else {
-                    $errors++;
-                    $messages[] = "Producto $productId: " . $result['message'];
-                }
-            }
-
             return new JsonResponse([
-                'success' => $errors === 0,
-                'message' => "$success productos importados correctamente" . ($errors > 0 ? ", $errors con errores" : ""),
-                'details' => [
-                    'success' => $success,
-                    'errors' => $errors,
-                    'messages' => $messages
+                'success' => true,
+                'message' => 'Producto obtenido correctamente',
+                'product' => [
+                    'id' => $product['id'] ?? 'N/A',
+                    'name' => $product['name'] ?? 'N/A',
+                    'reference' => $product['reference'] ?? 'N/A',
+                    'price' => $product['price'] ?? 'N/A',
+                    'keys' => array_keys($product)
                 ]
             ]);
-
         } catch (\Exception $e) {
             return new JsonResponse([
                 'success' => false,
-                'message' => 'Error: ' . $e->getMessage()
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
         }
     }

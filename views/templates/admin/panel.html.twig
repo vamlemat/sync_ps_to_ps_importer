@@ -74,7 +74,7 @@
           Productos disponibles para importar
         </h3>
         <div class="card-header-actions">
-          <button id="importSelected" class="btn btn-success" disabled>
+          <button id="importSelected" class="btn btn-success">
             <i class="material-icons">cloud_download</i> Importar seleccionados
           </button>
         </div>
@@ -183,82 +183,186 @@ tbody tr:hover {
 </style>
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-  const selectAll = document.getElementById('selectAll');
-  const productCheckboxes = document.querySelectorAll('.product-checkbox');
-  const importBtn = document.getElementById('importSelected');
-  const importModal = new bootstrap.Modal(document.getElementById('importModal'));
+(function() {
+  'use strict';
   
-  // Seleccionar/deseleccionar todos
-  if (selectAll) {
-    selectAll.addEventListener('change', function() {
-      productCheckboxes.forEach(cb => {
-        cb.checked = this.checked;
-      });
-      updateImportButton();
-    });
+  console.log('🔄 Iniciando script de sincronización...');
+  
+  // Esperar a que el DOM esté listo
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initSync);
+  } else {
+    initSync();
   }
   
-  // Actualizar botón al seleccionar productos
-  productCheckboxes.forEach(cb => {
-    cb.addEventListener('change', updateImportButton);
-  });
-  
-  function updateImportButton() {
-    const selected = Array.from(productCheckboxes).filter(cb => cb.checked);
+  function initSync() {
+    console.log('✅ DOM listo, inicializando...');
+    
+    const selectAll = document.getElementById('selectAll');
+    const productCheckboxes = document.querySelectorAll('.product-checkbox');
+    const importBtn = document.getElementById('importSelected');
+    const importModalEl = document.getElementById('importModal');
+    
+    console.log('Elementos encontrados:', {
+      selectAll: !!selectAll,
+      checkboxes: productCheckboxes.length,
+      importBtn: !!importBtn,
+      modal: !!importModalEl
+    });
+    
+    // Crear instancia del modal (con fallback si bootstrap no está disponible)
+    let importModal = null;
+    if (importModalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+      importModal = new bootstrap.Modal(importModalEl);
+    }
+    
+    // Seleccionar/deseleccionar todos
+    if (selectAll) {
+      selectAll.addEventListener('change', function() {
+        console.log('Toggle all:', this.checked);
+        productCheckboxes.forEach(cb => {
+          cb.checked = this.checked;
+        });
+        updateImportButton();
+      });
+    }
+    
+    // Actualizar botón al seleccionar productos
+    productCheckboxes.forEach(cb => {
+      cb.addEventListener('change', function() {
+        console.log('Checkbox changed:', this.value, this.checked);
+        updateImportButton();
+      });
+    });
+    
+    // Llamar una vez al inicio para actualizar el estado
+    updateImportButton();
+    
+    function updateImportButton() {
+      const selected = Array.from(productCheckboxes).filter(cb => cb.checked);
+      console.log('Actualizando botón. Seleccionados:', selected.length);
+      
+      if (importBtn) {
+        importBtn.disabled = selected.length === 0;
+        const icon = '<i class="material-icons">cloud_download</i>';
+        importBtn.innerHTML = selected.length > 0 
+          ? icon + ` Importar ${selected.length} producto(s)` 
+          : icon + ' Importar seleccionados';
+        console.log('Botón habilitado:', !importBtn.disabled);
+      }
+    }
+    
+    // Importar productos seleccionados
     if (importBtn) {
-      importBtn.disabled = selected.length === 0;
-      importBtn.textContent = selected.length > 0 
-        ? `Importar ${selected.length} producto(s)` 
-        : 'Importar seleccionados';
+      importBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        
+        const selected = Array.from(productCheckboxes)
+          .filter(cb => cb.checked)
+          .map(cb => cb.value);
+        
+        console.log('Importar clicked. Productos:', selected);
+        
+        if (selected.length === 0) {
+          alert('Por favor, selecciona al menos un producto');
+          return;
+        }
+        
+        // Confirmación
+        if (!confirm(`¿Importar ${selected.length} producto(s)?`)) {
+          return;
+        }
+        
+        // Deshabilitar botón durante la importación
+        importBtn.disabled = true;
+        importBtn.innerHTML = '<i class="material-icons">hourglass_empty</i> Importando...';
+        
+        // Mostrar modal de progreso si está disponible
+        if (importModal) {
+          importModal.show();
+        }
+        
+        // Construir URL correcta usando la ruta de Symfony
+        const importUrl = '{{ path('admin_sync_ps_to_ps_importer_import') }}';
+        console.log('URL de importación:', importUrl);
+        
+        // Enviar petición AJAX
+        fetch(importUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: JSON.stringify({
+            product_ids: selected
+          })
+        })
+        .then(response => {
+          console.log('Response status:', response.status);
+          return response.json();
+        })
+        .then(data => {
+          console.log('Response data:', data);
+          
+          if (importModal) {
+            importModal.hide();
+          }
+          
+          if (data.success) {
+            alert('✓ ' + data.message);
+            // Recargar la página
+            window.location.reload();
+          } else {
+            // Mostrar mensaje de error principal
+            let errorMsg = '✗ ' + data.message;
+            
+            // Añadir detalles de errores si existen
+            if (data.details && data.details.messages && data.details.messages.length > 0) {
+              errorMsg += '\n\nDetalles:\n' + data.details.messages.join('\n');
+              console.error('Errores detallados:', data.details.messages);
+            }
+            
+            // Mostrar logs completos en consola para debugging
+            if (data.details && data.details.logs) {
+              console.group('📋 Logs detallados de importación');
+              Object.keys(data.details.logs).forEach(key => {
+                console.group(key);
+                data.details.logs[key].forEach(log => console.log(log));
+                console.groupEnd();
+              });
+              console.groupEnd();
+              
+              errorMsg += '\n\n⚠️ Ver logs detallados en la consola del navegador (F12)';
+            }
+            
+            // Mostrar trace si existe
+            if (data.trace) {
+              console.error('Stack trace:', data.trace);
+            }
+            
+            alert(errorMsg);
+            
+            // Re-habilitar botón
+            importBtn.disabled = false;
+            updateImportButton();
+          }
+        })
+        .catch(error => {
+          console.error('Error de fetch:', error);
+          
+          if (importModal) {
+            importModal.hide();
+          }
+          
+          alert('✗ Error de conexión: ' + error.message);
+          
+          // Re-habilitar botón
+          importBtn.disabled = false;
+          updateImportButton();
+        });
+      });
     }
   }
-  
-  // Importar productos seleccionados
-  if (importBtn) {
-    importBtn.addEventListener('click', function() {
-      const selected = Array.from(productCheckboxes)
-        .filter(cb => cb.checked)
-        .map(cb => cb.value);
-      
-      if (selected.length === 0) {
-        return;
-      }
-      
-      // Mostrar modal de progreso
-      importModal.show();
-      
-      // Enviar petición AJAX
-      fetch('/modules/sync-ps-to-ps/import', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          product_ids: selected
-        })
-      })
-      .then(response => response.json())
-      .then(data => {
-        importModal.hide();
-        
-        if (data.success) {
-          alert('✓ ' + data.message);
-          // Recargar la página
-          window.location.reload();
-        } else {
-          alert('✗ Error: ' + data.message);
-          if (data.details && data.details.messages) {
-            console.error('Detalles:', data.details.messages);
-          }
-        }
-      })
-      .catch(error => {
-        importModal.hide();
-        alert('✗ Error de conexión: ' + error);
-      });
-    });
-  }
-});
+})();
 </script>
 {% endblock %}
