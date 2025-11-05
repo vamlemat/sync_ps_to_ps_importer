@@ -186,9 +186,15 @@ class ProductImporterService
                 $this->errors[] = "ERROR en imágenes: " . $e->getMessage();
             }
 
-            // PASO 9: Importar características (deshabilitado temporalmente - muy lento)
-            $this->errors[] = "[9/9] Características: omitidas (requieren configuración manual)";
-            $warnings[] = "Las 28 características no se importan automáticamente. Puedes asignarlas manualmente después.";
+            // PASO 9: Importar características
+            $this->errors[] = "[9/9] Importando características...";
+            try {
+                $featureCount = $this->importFeaturesOptimized($product, $remoteProduct);
+                $this->errors[] = "  ✓ Características: $featureCount importadas/asignadas";
+            } catch (\Exception $e) {
+                $warnings[] = "Características: " . $e->getMessage();
+                $this->errors[] = "  ERROR en características: " . $e->getMessage();
+            }
 
             $this->errors[] = "=== ✅ Importación completada exitosamente ===";
 
@@ -505,6 +511,107 @@ class ProductImporterService
         }
         
         return $results;
+    }
+
+    /**
+     * Importar características de forma optimizada
+     */
+    private function importFeaturesOptimized($product, $remoteProduct)
+    {
+        $imported = 0;
+        
+        try {
+            // Obtener características desde associations
+            if (!isset($remoteProduct['associations']['product_features']) || !is_array($remoteProduct['associations']['product_features'])) {
+                $this->errors[] = "  No hay características en el producto remoto";
+                return 0;
+            }
+            
+            $features = $remoteProduct['associations']['product_features'];
+            $this->errors[] = "  Encontradas " . count($features) . " características remotas";
+            
+            // Eliminar características existentes del producto
+            \Db::getInstance()->delete('feature_product', '`id_product` = ' . (int)$product->id);
+            
+            // Obtener TODAS las características y valores locales de una vez (para evitar múltiples queries)
+            $localFeatures = $this->getAllLocalFeatures();
+            $localFeatureValues = $this->getAllLocalFeatureValues();
+            
+            foreach ($features as $featureData) {
+                try {
+                    $remoteFeatureId = (int)($featureData['id'] ?? 0);
+                    $remoteFeatureValueId = (int)($featureData['id_feature_value'] ?? 0);
+                    
+                    if (!$remoteFeatureId || !$remoteFeatureValueId) {
+                        continue;
+                    }
+                    
+                    // Por ahora, intentar usar los mismos IDs si existen
+                    // (esto funciona si las dos tiendas tienen las mismas características)
+                    if (isset($localFeatures[$remoteFeatureId]) && isset($localFeatureValues[$remoteFeatureValueId])) {
+                        // Insertar directamente
+                        \Db::getInstance()->insert('feature_product', [
+                            'id_feature' => $remoteFeatureId,
+                            'id_product' => (int)$product->id,
+                            'id_feature_value' => $remoteFeatureValueId
+                        ], false, true, \Db::INSERT_IGNORE);
+                        $imported++;
+                        $this->errors[] = "  ✓ Característica $remoteFeatureId = $remoteFeatureValueId asignada";
+                    } else {
+                        $this->errors[] = "  ⚠ Característica $remoteFeatureId o valor $remoteFeatureValueId no existe localmente";
+                    }
+                    
+                } catch (\Exception $e) {
+                    $this->errors[] = "  Error en característica: " . $e->getMessage();
+                    continue;
+                }
+            }
+            
+            if ($imported == 0) {
+                $this->errors[] = "  ⚠ Ninguna característica coincide. Las tiendas deben tener las mismas características creadas.";
+            }
+            
+            return $imported;
+            
+        } catch (\Exception $e) {
+            throw new \Exception("Error general en características: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Obtener todas las características locales (caché)
+     */
+    private function getAllLocalFeatures()
+    {
+        static $features = null;
+        
+        if ($features === null) {
+            $features = [];
+            $result = \Db::getInstance()->executeS('SELECT id_feature FROM `' . _DB_PREFIX_ . 'feature`');
+            foreach ($result as $row) {
+                $features[(int)$row['id_feature']] = true;
+            }
+        }
+        
+        return $features;
+    }
+
+    /**
+     * Obtener todos los valores de características locales (caché)
+     */
+    private function getAllLocalFeatureValues()
+    {
+        static $featureValues = null;
+        
+        if ($featureValues === null) {
+            $featureValues = [];
+            $result = \Db::getInstance()->executeS('SELECT id_feature_value FROM `' . _DB_PREFIX_ . 'feature_value`');
+            foreach ($result as $row) {
+                $featureValues[(int)$row['id_feature_value']] = true;
+            }
+        }
+        
+        return $featureValues;
     }
 
     /**
