@@ -71,9 +71,38 @@ class Sync_Ps_To_Ps_Importer extends Module
         $tab->class_name = 'AdminSyncPsToPsImporter';
         
         // Ruta de Symfony
-        $tab->route_name = 'admin_sync_ps_to_ps_importer_panel'; 
+        $tab->route_name = 'admin_sync_ps_to_ps_importer_panel';
         
-        return $tab->add();
+        // Intentar agregar el icono
+        $tab->icon = 'sync';
+        
+        if (!$tab->add()) {
+            return false;
+        }
+        
+        // Asignar permisos a todos los perfiles
+        return $this->assignTabPermissions($tab->id);
+    }
+    
+    /**
+     * Asigna permisos del tab a todos los perfiles
+     */
+    private function assignTabPermissions($tabId): bool
+    {
+        $profiles = Db::getInstance()->executeS('SELECT id_profile FROM ' . _DB_PREFIX_ . 'profile');
+        
+        foreach ($profiles as $profile) {
+            $result = Db::getInstance()->insert('access', [
+                'id_profile' => (int)$profile['id_profile'],
+                'id_authorization_role' => (int)$tabId,
+            ]);
+            
+            if (!$result) {
+                return false;
+            }
+        }
+        
+        return true;
     }
 
     /**
