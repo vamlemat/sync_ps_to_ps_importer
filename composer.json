@@ -1,12 +1,29 @@
 {
-  "name": "prestashop/sync_ps_to_ps_importer",
+  "name": "atech/sync-ps-to-ps-importer",
+  "description": "Módulo para sincronizar productos entre dos tiendas PrestaShop",
+  "type": "prestashop-module",
+  "license": "AFL-3.0",
+  "authors": [
+    {
+      "name": "Atech"
+    }
+  ],
+  "require": {
+    "php": ">=7.2.0"
+  },
   "autoload": {
     "psr-4": {
       "SyncPsToPsImporter\\": "src/"
-    }
+    },
+    "classmap": [
+      "sync_ps_to_ps_importer.php"
+    ],
+    "files": [
+      "autoload.php"
+    ]
   },
   "config": {
-    "prepend-autoloader": false
-  },
-  "type": "prestashop-module"
+    "prepend-autoloader": false,
+    "sort-packages": true
+  }
 }

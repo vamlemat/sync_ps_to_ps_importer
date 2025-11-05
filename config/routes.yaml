@@ -1,6 +1,0 @@
-admin_sync_ps_to_ps_importer_panel:
-  path: /sync-ps-to-ps/panel
-  methods: [GET, POST]
-  defaults:
-    _controller: 'SyncPsToPsImporter\Controller\AdminImporterController::indexAction'
-    _legacy_controller: 'AdminImporterController' # Nombre para el enlace del menú

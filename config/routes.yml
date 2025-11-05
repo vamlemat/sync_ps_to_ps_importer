@@ -1,0 +1,19 @@
+admin_sync_ps_to_ps_importer_panel:
+  path: /sync-ps-to-ps/panel
+  methods: [GET]
+  defaults:
+    _controller: 'SyncPsToPsImporter\Controller\AdminImporterController::indexAction'
+    _legacy_controller: AdminSyncPsToPsImporter
+    _legacy_link: AdminSyncPsToPsImporter
+
+admin_sync_ps_to_ps_importer_import:
+  path: /sync-ps-to-ps/import
+  methods: [POST]
+  defaults:
+    _controller: 'SyncPsToPsImporter\Controller\AdminImporterController::importAction'
+
+admin_sync_ps_to_ps_importer_test:
+  path: /sync-ps-to-ps/test-connection
+  methods: [POST]
+  defaults:
+    _controller: 'SyncPsToPsImporter\Controller\AdminImporterController::testConnectionAction'

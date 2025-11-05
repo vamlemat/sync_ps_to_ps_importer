@@ -1,0 +1,27 @@
+# Archivos de diagnóstico (contienen API Keys sensibles)
+diagnostico.php
+
+# Archivos comprimidos
+*.zip
+*.tar.gz
+*.rar
+
+# Archivos de configuración local
+config_local.php
+
+# Cache y logs
+var/cache/
+var/logs/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+

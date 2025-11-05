@@ -1,21 +1,264 @@
 {% extends '@PrestaShop/Admin/layout.html.twig' %}
 
 {% block content %}
-  <div class="row">
-    <div class="col">
-      <div class="card">
-        <h3 class="card-header">
-          <i class="material-icons">sync</i> Panel de Sincronización
+<div class="row">
+  <div class="col-12">
+    {% if error %}
+    <div class="alert alert-danger" role="alert">
+      <h4 class="alert-heading">
+        <i class="material-icons">error</i> Error de conexión
+      </h4>
+      <p>{{ error }}</p>
+      {% if not hasConfig %}
+      <hr>
+      <p class="mb-0">
+        <a href="{{ '/admin-dev/index.php?controller=AdminModules&configure=sync_ps_to_ps_importer'|raw }}" class="btn btn-primary">
+          <i class="material-icons">settings</i> Configurar módulo
+        </a>
+      </p>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if connectionStatus and connectionStatus.success %}
+    <div class="alert alert-success" role="alert">
+      <i class="material-icons">check_circle</i> <strong>Conectado exitosamente</strong> a {{ apiUrl }}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if hasConfig and not error %}
+<div class="row mb-3">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-header-title">
+          <i class="material-icons">filter_list</i>
+          Filtros
         </h3>
-        <div class="card-body">
-          <p>
-            ¡Hola! Esta es la página de tu panel.
-          </p>
-          <p>
-            Aquí es donde pondremos la lista de productos de la tienda vieja.
-          </p>
-        </div>
+      </div>
+      <div class="card-body">
+        <form method="get" class="form-inline">
+          <div class="form-group mr-3">
+            <label for="search" class="mr-2">Buscar:</label>
+            <input type="text" class="form-control" id="search" name="search" placeholder="Nombre del producto">
+          </div>
+          
+          <div class="form-group mr-3">
+            <label for="category" class="mr-2">Categoría:</label>
+            <select class="form-control" id="category" name="category">
+              <option value="">Todas las categorías</option>
+              {% for category in categories %}
+                {% set categoryName = category.name is iterable ? (category.name[1] ?? category.name|first) : category.name %}
+                <option value="{{ category.id }}">{{ categoryName }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          
+          <button type="submit" class="btn btn-primary">
+            <i class="material-icons">search</i> Buscar
+          </button>
+        </form>
       </div>
     </div>
   </div>
+</div>
+
+<div class="row">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-header-title">
+          <i class="material-icons">shopping_cart</i>
+          Productos disponibles para importar
+        </h3>
+        <div class="card-header-actions">
+          <button id="importSelected" class="btn btn-success" disabled>
+            <i class="material-icons">cloud_download</i> Importar seleccionados
+          </button>
+        </div>
+      </div>
+      <div class="card-body">
+        {% if products is empty %}
+        <p class="text-center text-muted">
+          <i class="material-icons" style="font-size: 48px;">inbox</i>
+          <br>
+          No se encontraron productos
+        </p>
+        {% else %}
+        <div class="table-responsive">
+          <table class="table table-hover">
+            <thead>
+              <tr>
+                <th width="40">
+                  <input type="checkbox" id="selectAll">
+                </th>
+                <th width="60">ID</th>
+                <th>Imagen</th>
+                <th>Nombre</th>
+                <th>Referencia</th>
+                <th>Precio</th>
+                <th>Stock</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for product in products %}
+              <tr>
+                <td>
+                  <input type="checkbox" class="product-checkbox" value="{{ product.id }}">
+                </td>
+                <td>{{ product.id }}</td>
+                <td>
+                  {% if product.id_default_image %}
+                    {% set productName = product.name is iterable ? (product.name[1] ?? product.name|first) : product.name %}
+                    {% set linkRewrite = product.link_rewrite is iterable ? (product.link_rewrite[1] ?? product.link_rewrite|first) : product.link_rewrite %}
+                    <img src="{{ apiUrl }}/{{ product.id }}-small_default/{{ linkRewrite }}.jpg" 
+                         alt="{{ productName }}" 
+                         class="img-thumbnail" 
+                         style="max-width: 50px;"
+                         onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'50\' height=\'50\'%3E%3Crect fill=\'%23eee\' width=\'50\' height=\'50\'/%3E%3C/svg%3E'">
+                  {% else %}
+                    <div class="bg-light text-center" style="width: 50px; height: 50px; line-height: 50px;">
+                      <i class="material-icons">image</i>
+                    </div>
+                  {% endif %}
+                </td>
+                <td>
+                  {% set productName = product.name is iterable ? (product.name[1] ?? product.name|first) : product.name %}
+                  <strong>{{ productName ?? 'Sin nombre' }}</strong>
+                </td>
+                <td>{{ product.reference ?? '' }}</td>
+                <td>{{ product.price ?? '0' }} €</td>
+                <td>{{ product.quantity ?? 0 }}</td>
+                <td>
+                  {% if product.active == '1' %}
+                    <span class="badge badge-success">Activo</span>
+                  {% else %}
+                    <span class="badge badge-secondary">Inactivo</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# Modal de progreso #}
+<div class="modal fade" id="importModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Importando productos</h5>
+      </div>
+      <div class="modal-body">
+        <div class="progress">
+          <div class="progress-bar progress-bar-striped progress-bar-animated" 
+               role="progressbar" 
+               style="width: 100%"></div>
+        </div>
+        <p class="mt-3 text-center" id="importMessage">Por favor espera...</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.card-header-actions {
+  margin-left: auto;
+}
+.product-checkbox {
+  cursor: pointer;
+}
+tbody tr:hover {
+  background-color: #f8f9fa;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const selectAll = document.getElementById('selectAll');
+  const productCheckboxes = document.querySelectorAll('.product-checkbox');
+  const importBtn = document.getElementById('importSelected');
+  const importModal = new bootstrap.Modal(document.getElementById('importModal'));
+  
+  // Seleccionar/deseleccionar todos
+  if (selectAll) {
+    selectAll.addEventListener('change', function() {
+      productCheckboxes.forEach(cb => {
+        cb.checked = this.checked;
+      });
+      updateImportButton();
+    });
+  }
+  
+  // Actualizar botón al seleccionar productos
+  productCheckboxes.forEach(cb => {
+    cb.addEventListener('change', updateImportButton);
+  });
+  
+  function updateImportButton() {
+    const selected = Array.from(productCheckboxes).filter(cb => cb.checked);
+    if (importBtn) {
+      importBtn.disabled = selected.length === 0;
+      importBtn.textContent = selected.length > 0 
+        ? `Importar ${selected.length} producto(s)` 
+        : 'Importar seleccionados';
+    }
+  }
+  
+  // Importar productos seleccionados
+  if (importBtn) {
+    importBtn.addEventListener('click', function() {
+      const selected = Array.from(productCheckboxes)
+        .filter(cb => cb.checked)
+        .map(cb => cb.value);
+      
+      if (selected.length === 0) {
+        return;
+      }
+      
+      // Mostrar modal de progreso
+      importModal.show();
+      
+      // Enviar petición AJAX
+      fetch('/modules/sync-ps-to-ps/import', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          product_ids: selected
+        })
+      })
+      .then(response => response.json())
+      .then(data => {
+        importModal.hide();
+        
+        if (data.success) {
+          alert('✓ ' + data.message);
+          // Recargar la página
+          window.location.reload();
+        } else {
+          alert('✗ Error: ' + data.message);
+          if (data.details && data.details.messages) {
+            console.error('Detalles:', data.details.messages);
+          }
+        }
+      })
+      .catch(error => {
+        importModal.hide();
+        alert('✗ Error de conexión: ' + error);
+      });
+    });
+  }
+});
+</script>
 {% endblock %}
