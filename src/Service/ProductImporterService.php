@@ -636,8 +636,11 @@ class ProductImporterService
         }
         
         // Buscar por nombre
-        $sql = 'SELECT f.id_feature FROM ' . _DB_PREFIX_ . 'feature f INNER JOIN ' . _DB_PREFIX_ . 'feature_lang fl ON (f.id_feature = fl.id_feature) WHERE fl.name = "' . pSQL($featureName) . '" AND fl.id_lang = 1 LIMIT 1';
-        $featureId = (int)\Db::getInstance()->getValue($sql);
+        $db = \Db::getInstance();
+        $tableFeature = _DB_PREFIX_ . 'feature';
+        $tableFeatureLang = _DB_PREFIX_ . 'feature_lang';
+        $sql = "SELECT f.id_feature FROM {$tableFeature} f INNER JOIN {$tableFeatureLang} fl ON f.id_feature = fl.id_feature WHERE fl.name = '" . pSQL($featureName) . "' AND fl.id_lang = 1 LIMIT 1";
+        $featureId = (int)$db->getValue($sql);
         
         if ($featureId) {
             $cache[$cacheKey] = $featureId;
@@ -677,8 +680,10 @@ class ProductImporterService
         }
         
         // Buscar por nombre y característica
-        $sql = 'SELECT id_feature_value FROM ' . _DB_PREFIX_ . 'feature_value WHERE id_feature = ' . (int)$featureId . ' AND value = "' . pSQL($valueName) . '" LIMIT 1';
-        $valueId = (int)\Db::getInstance()->getValue($sql);
+        $db = \Db::getInstance();
+        $tableFeatureValue = _DB_PREFIX_ . 'feature_value';
+        $sql = "SELECT id_feature_value FROM {$tableFeatureValue} WHERE id_feature = " . (int)$featureId . " AND value = '" . pSQL($valueName) . "' LIMIT 1";
+        $valueId = (int)$db->getValue($sql);
         
         if ($valueId) {
             $cache[$cacheKey] = $valueId;
@@ -733,8 +738,11 @@ class ProductImporterService
                 : ($remoteCategory['name'] ?? 'Categoría ' . $remoteCategoryId);
             
             // Buscar si ya existe localmente por nombre
-            $sql = 'SELECT c.id_category FROM ' . _DB_PREFIX_ . 'category c INNER JOIN ' . _DB_PREFIX_ . 'category_lang cl ON (c.id_category = cl.id_category) WHERE cl.name = "' . pSQL($categoryName) . '" AND cl.id_lang = 1 LIMIT 1';
-            $localCategoryId = (int)\Db::getInstance()->getValue($sql);
+            $db = \Db::getInstance();
+            $tableCat = _DB_PREFIX_ . 'category';
+            $tableCatLang = _DB_PREFIX_ . 'category_lang';
+            $sql = "SELECT c.id_category FROM {$tableCat} c INNER JOIN {$tableCatLang} cl ON c.id_category = cl.id_category WHERE cl.name = '" . pSQL($categoryName) . "' AND cl.id_lang = 1 LIMIT 1";
+            $localCategoryId = (int)$db->getValue($sql);
             
             if ($localCategoryId) {
                 $this->errors[] = "    Cat '$categoryName' ya existe (ID: $localCategoryId)";
