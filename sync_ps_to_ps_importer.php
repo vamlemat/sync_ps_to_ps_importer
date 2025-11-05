@@ -81,13 +81,18 @@ class Sync_Ps_To_Ps_Importer extends Module
      */
     public function uninstallTab(): bool
     {
-        // Buscamos por "route_name" en lugar de "class_name"
-        $id_tab = (int)Tab::getIdFromRouteName('admin_sync_ps_to_ps_importer_panel');
-        if (!$id_tab) {
+        // Buscamos el tab por route_name
+        $tabId = Db::getInstance()->getValue('
+            SELECT id_tab 
+            FROM ' . _DB_PREFIX_ . 'tab 
+            WHERE route_name = "admin_sync_ps_to_ps_importer_panel"
+        ');
+        
+        if (!$tabId) {
             return true;
         }
 
-        $tab = new Tab($id_tab);
+        $tab = new Tab($tabId);
         
         return $tab->delete();
     }
