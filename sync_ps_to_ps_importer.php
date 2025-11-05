@@ -54,8 +54,15 @@ class Sync_Ps_To_Ps_Importer extends Module
      */
     public function installTab(): bool
     {
+        // Primero verificamos si ya existe un tab con esta ruta
+        $tabId = (int)Tab::getIdFromClassName('AdminSyncPsToPsImporter');
+        if ($tabId) {
+            return true; // Ya existe
+        }
+        
         $tab = new Tab();
         $tab->active = 1;
+        $tab->class_name = 'AdminSyncPsToPsImporter';
         
         // El nombre que se verá en el menú
         $tab->name = [];
@@ -64,16 +71,28 @@ class Sync_Ps_To_Ps_Importer extends Module
         }
         
         // El padre (ponlo donde quieras, -1 es el raíz)
-        // 10 es "Catálogo"
+        // AdminCatalog es "Catálogo"
         $tab->id_parent = (int)Tab::getIdFromClassName('AdminCatalog');
         $tab->module = $this->name;
         
-        // --- ESTE ES EL ARREGLO ---
-        // SOLO ponemos el nombre de la RUTA SYMFONY.
-        // Quitamos la línea "class_name" que causaba el conflicto.
-        $tab->route_name = 'admin_sync_ps_to_ps_importer_panel'; 
+        // La ruta de Symfony
+        $tab->route_name = 'admin_sync_ps_to_ps_importer_panel';
         
-        return $tab->add();
+        // Icono (opcional)
+        $tab->icon = 'sync';
+        
+        if (!$tab->add()) {
+            PrestaShopLogger::addLog(
+                'Error al crear el tab del módulo ' . $this->name,
+                3,
+                null,
+                'Module',
+                (int)$this->id
+            );
+            return false;
+        }
+        
+        return true;
     }
 
     /**
@@ -81,8 +100,8 @@ class Sync_Ps_To_Ps_Importer extends Module
      */
     public function uninstallTab(): bool
     {
-        // Buscamos por "route_name" en lugar de "class_name"
-        $id_tab = (int)Tab::getIdFromRouteName('admin_sync_ps_to_ps_importer_panel');
+        // Buscamos por "class_name"
+        $id_tab = (int)Tab::getIdFromClassName('AdminSyncPsToPsImporter');
         if (!$id_tab) {
             return true;
         }
