@@ -100,17 +100,37 @@ class ProductImporterService
             }
             $this->errors[] = "✓ Producto guardado (ID: {$product->id})";
 
-            // PASO 5: Asignar categorías
-            $this->errors[] = "[5/9] Asignando categorías...";
+            // PASO 5: Asignar categorías CON JERARQUÍA COMPLETA
+            $this->errors[] = "[5/9] Creando/asignando categorías...";
             try {
-                $categories = [2]; // Home
-                if (isset($remoteProduct['id_category_default'])) {
-                    $categories[] = $remoteProduct['id_category_default'];
+                $categories = [2]; // Siempre incluir Home
+                
+                // Obtener todas las categorías del producto desde associations
+                if (isset($remoteProduct['associations']['categories']) && is_array($remoteProduct['associations']['categories'])) {
+                    $this->errors[] = "  Producto tiene " . count($remoteProduct['associations']['categories']) . " categorías remotas";
+                    
+                    foreach ($remoteProduct['associations']['categories'] as $cat) {
+                        $remoteCategoryId = (int)($cat['id'] ?? 0);
+                        if ($remoteCategoryId > 2) { // Omitir Home y Root
+                            $localCategoryId = $this->createCategoryWithHierarchy($remoteCategoryId);
+                            if ($localCategoryId && !in_array($localCategoryId, $categories)) {
+                                $categories[] = $localCategoryId;
+                            }
+                        }
+                    }
                 }
-                $product->updateCategories(array_unique($categories));
-                $this->errors[] = "✓ Categorías asignadas: " . count($categories);
+                
+                // Asegurar que la categoría principal esté en la lista
+                if (!empty($product->id_category_default) && !in_array($product->id_category_default, $categories)) {
+                    $categories[] = $product->id_category_default;
+                }
+                
+                $categories = array_unique($categories);
+                $product->updateCategories($categories);
+                $this->errors[] = "  ✓ Categorías asignadas: " . count($categories) . " categorías (IDs: " . implode(', ', $categories) . ")";
             } catch (\Exception $e) {
                 $warnings[] = "Categorías: " . $e->getMessage();
+                $this->errors[] = "  ERROR en categorías: " . $e->getMessage();
             }
 
             // PASO 6: Asignar fabricante
@@ -485,6 +505,84 @@ class ProductImporterService
         }
         
         return $results;
+    }
+
+    /**
+     * Crear categoría con toda su jerarquía (recursivo)
+     */
+    private function createCategoryWithHierarchy($remoteCategoryId)
+    {
+        // Cache de categorías
+        static $categoryCache = [];
+        
+        if (isset($categoryCache[$remoteCategoryId])) {
+            return $categoryCache[$remoteCategoryId];
+        }
+        
+        if (empty($remoteCategoryId) || $remoteCategoryId <= 2) {
+            return 2; // Home
+        }
+        
+        try {
+            // Obtener datos de la categoría remota
+            $remoteCategory = $this->apiService->getCategory($remoteCategoryId);
+            if (!$remoteCategory) {
+                $this->errors[] = "    Categoría remota $remoteCategoryId no encontrada";
+                return 2;
+            }
+            
+            $categoryName = is_array($remoteCategory['name'] ?? null) 
+                ? ($remoteCategory['name'][1] ?? reset($remoteCategory['name']))
+                : ($remoteCategory['name'] ?? 'Categoría ' . $remoteCategoryId);
+            
+            // Buscar si ya existe localmente por nombre
+            $sql = 'SELECT c.id_category FROM `' . _DB_PREFIX_ . 'category` c
+                    INNER JOIN `' . _DB_PREFIX_ . 'category_lang` cl ON (c.id_category = cl.id_category)
+                    WHERE cl.name = "' . pSQL($categoryName) . '" AND cl.id_lang = 1
+                    LIMIT 1';
+            $localCategoryId = (int)\Db::getInstance()->getValue($sql);
+            
+            if ($localCategoryId) {
+                $this->errors[] = "    Cat '$categoryName' ya existe (ID: $localCategoryId)";
+                $categoryCache[$remoteCategoryId] = $localCategoryId;
+                return $localCategoryId;
+            }
+            
+            // Crear el padre primero (recursivo)
+            $remoteParentId = (int)($remoteCategory['id_parent'] ?? 2);
+            $localParentId = 2;
+            
+            if ($remoteParentId > 2) {
+                $this->errors[] = "    Creando padre (ID remoto: $remoteParentId) primero...";
+                $localParentId = $this->createCategoryWithHierarchy($remoteParentId);
+            }
+            
+            // Crear la categoría
+            $category = new \Category();
+            $category->id_parent = $localParentId;
+            $category->active = 1;
+            $category->is_root_category = false;
+            
+            $languages = \Language::getLanguages(false);
+            foreach ($languages as $lang) {
+                $category->name[$lang['id_lang']] = $categoryName;
+                $category->link_rewrite[$lang['id_lang']] = \Tools::str2url($categoryName);
+                $category->description[$lang['id_lang']] = '';
+            }
+            
+            if ($category->add()) {
+                $this->errors[] = "    ✓ CREADA: '$categoryName' (ID local: {$category->id}, Padre: $localParentId)";
+                $categoryCache[$remoteCategoryId] = $category->id;
+                return $category->id;
+            } else {
+                $this->errors[] = "    ✗ Error al crear '$categoryName'";
+                return 2;
+            }
+            
+        } catch (\Exception $e) {
+            $this->errors[] = "    Error en categoría $remoteCategoryId: " . $e->getMessage();
+            return 2;
+        }
     }
 
     /**
