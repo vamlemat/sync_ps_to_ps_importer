@@ -17,129 +17,154 @@ class PrestaShopApiService
     {
         $this->apiUrl = rtrim($apiUrl, '/');
         $this->apiKey = $apiKey;
-        
-        // Extraer el dominio de la URL
+
         $parsed = parse_url($this->apiUrl);
         $this->domain = $parsed['host'] ?? null;
     }
-    
-    /**
-     * Configurar IP personalizada para resolver el dominio
-     * Útil cuando el dominio es interno y no se puede modificar /etc/hosts
-     */
+
     public function setCustomIp($ip)
     {
-        $this->customIp = $ip;
+        $this->customIp = trim((string)$ip);
     }
 
-    /**
-     * Activar modo debug
-     */
     public function setDebug($debug = true)
     {
-        $this->debug = $debug;
+        $this->debug = (bool)$debug;
     }
-    
-    /**
-     * Obtener URL de API
-     */
+
     public function getApiUrl()
     {
         return $this->apiUrl;
     }
 
+    private function log($msg)
+    {
+        if ($this->debug) {
+            error_log($msg);
+        }
+    }
+
     /**
-     * Hacer petición GET al webservice
+     * Petición GET genérica al Webservice (maneja JSON/XML y detecta HTML)
      */
     private function makeRequest($resource, $params = [])
     {
-        $url = $this->apiUrl . '/api/' . $resource;
-        
-        // Añadir parámetros
+        $url = $this->apiUrl . '/api/' . ltrim($resource, '/');
+
+        // Pedimos JSON, pero haremos fallback si el WS devuelve XML
         $queryParams = array_merge(['output_format' => 'JSON'], $params);
         $url .= '?' . http_build_query($queryParams);
 
-        // Configurar cURL con opciones mejoradas para resolver problemas de DNS y SSL
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
+        // Auth básica con ws_key
         curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
         curl_setopt($ch, CURLOPT_USERPWD, $this->apiKey . ':');
-        
-        // Configuración SSL (desactivar verificación para certificados autofirmados)
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-        
-        // Forzar uso de IPv4 para evitar problemas de DNS con IPv6
-        curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
-        
-        // Timeouts más generosos
+
+        // Retorno y compresión
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_ENCODING, ''); // gzip/deflate
+
+        // Timeouts
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);
         curl_setopt($ch, CURLOPT_TIMEOUT, 60);
-        
-        // Seguir redirecciones
+
+        // Redirecciones
         curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
         curl_setopt($ch, CURLOPT_MAXREDIRS, 5);
-        
-        // User Agent para evitar bloqueos
-        curl_setopt($ch, CURLOPT_USERAGENT, 'PrestaShop-Sync-Module/1.0');
-        
-        // Usar DNS cache
-        curl_setopt($ch, CURLOPT_DNS_CACHE_TIMEOUT, 120);
-        
-        // Si se configuró una IP personalizada, forzar la resolución
+
+        // IPv4
+        curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+
+        // SSL permisivo (entornos privados)
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+
+        // Cabeceras (forzar Host cuando hay RESOLVE)
+        $headers = ['Accept: application/json', 'Accept-Encoding: gzip'];
+        if (!empty($this->domain)) {
+            $headers[] = 'Host: ' . $this->domain;
+        }
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+
+        // Pin DNS por IP personalizada
         if ($this->customIp && $this->domain) {
             $parsed = parse_url($url);
-            $port = $parsed['port'] ?? ($parsed['scheme'] === 'https' ? 443 : 80);
-            $resolve = ["{$this->domain}:{$port}:{$this->customIp}"];
-            curl_setopt($ch, CURLOPT_RESOLVE, $resolve);
-            
-            if ($this->debug) {
-                error_log("Using custom IP resolution: {$this->domain}:{$port} -> {$this->customIp}");
-            }
+            $scheme = $parsed['scheme'] ?? 'https';
+            $port = $parsed['port'] ?? ($scheme === 'https' ? 443 : 80);
+            curl_setopt($ch, CURLOPT_RESOLVE, [ "{$this->domain}:{$port}:{$this->customIp}" ]);
+            $this->log("Using custom IP resolution: {$this->domain}:{$port} -> {$this->customIp}");
         }
 
         $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $error = curl_error($ch);
-        $errorNo = curl_errno($ch);
-        
-        if ($this->debug) {
-            error_log("API Request: $url");
-            error_log("HTTP Code: $httpCode");
-            error_log("cURL Error No: $errorNo");
-            error_log("cURL Error: $error");
-            error_log("Response: " . substr($response, 0, 500));
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error    = curl_error($ch);
+        $errorNo  = curl_errno($ch);
+
+        $this->log("API Request: $url");
+        $this->log("HTTP Code: $httpCode");
+        if ($error) {
+            $this->log("cURL Error No: $errorNo");
+            $this->log("cURL Error: $error");
         }
-        
+        if ($response !== false) {
+            $this->log("Response (first 400): " . substr((string)$response, 0, 400));
+        }
+
         curl_close($ch);
 
         if ($error) {
-            // Proporcionar mensaje de error más específico
-            $errorMsg = "Error de conexión: $error (Código: $errorNo)";
-            
-            if ($errorNo == 6) { // CURLE_COULDNT_RESOLVE_HOST
-                $errorMsg .= "\n\nEl servidor no puede resolver el dominio. Posibles soluciones:\n";
-                $errorMsg .= "1. Verifica la configuración de DNS del servidor\n";
-                $errorMsg .= "2. Contacta con tu proveedor de hosting\n";
-                $errorMsg .= "3. Añade la IP del dominio al archivo /etc/hosts del servidor";
-            } elseif ($errorNo == 60) { // CURLE_SSL_CACERT
-                $errorMsg .= "\n\nProblema con el certificado SSL. El certificado de {$this->apiUrl} no es válido.";
+            $msg = "Error de conexión: $error (Código: $errorNo)";
+            if ($errorNo == 6)  { $msg .= "\n- DNS/Host. Usa IP personalizada o revisa DNS."; }
+            if ($errorNo == 60) { $msg .= "\n- Certificado SSL del remoto no válido."; }
+            throw new \Exception($msg);
+        }
+
+        if ($httpCode < 200 || $httpCode >= 300) {
+            $snippet = substr((string)$response, 0, 200);
+            throw new \Exception("HTTP $httpCode desde $resource. Cuerpo: " . $snippet);
+        }
+
+        // --- Parse inteligente ---
+        $body = (string)$response;
+        $trim = ltrim($body);
+
+        // 1) JSON
+        if ($trim !== '' && ($trim[0] === '{' || $trim[0] === '[')) {
+            $data = json_decode($body, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                return $data;
             }
-            
-            throw new \Exception($errorMsg);
+            // si no es JSON válido, seguimos a XML/HTML
         }
 
-        if ($httpCode !== 200) {
-            throw new \Exception("Error HTTP $httpCode: " . substr($response, 0, 200));
+        // 2) XML (no HTML)
+        $isXml  = (stripos($trim, '<?xml') === 0) ||
+                  (stripos($trim, '<prestashop') !== false) ||
+                  ($trim !== '' && $trim[0] === '<' && stripos($trim, '</') !== false);
+        $isHtml = (stripos($trim, '<html') !== false) || (stripos($trim, '<!DOCTYPE html') !== false);
+
+        if ($isXml && !$isHtml) {
+            if (!function_exists('simplexml_load_string')) {
+                throw new \Exception(
+                    'El servidor no tiene habilitada la extensión PHP SimpleXML/DOM/XML. ' .
+                    'Actívalas para poder parsear respuestas XML del Webservice.'
+                );
+            }
+            $xml = @simplexml_load_string($body, 'SimpleXMLElement', LIBXML_NOCDATA);
+            if ($xml !== false) {
+                $json = json_encode($xml);
+                $arr  = json_decode($json, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($arr)) {
+                    return $arr;
+                }
+            }
         }
 
-        $data = json_decode($response, true);
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            throw new \Exception("Error al decodificar JSON: " . json_last_error_msg());
-        }
-
-        return $data;
+        // 3) HTML u otro contenido
+        $snippet = substr($trim, 0, 200);
+        throw new \Exception("Respuesta no JSON del Webservice. Probable HTML (401/403/500, WAF o login). Fragmento: ".$snippet);
     }
 
     /**
@@ -162,12 +187,11 @@ class PrestaShopApiService
     {
         $params = [
             'display' => 'full',
-            'limit' => "$offset,$limit"
+            'limit'   => "$offset,$limit",
         ];
 
-        // Aplicar filtros si existen
         if (!empty($filters['id_category'])) {
-            $params['filter[id_category_default]'] = $filters['id_category'];
+            $params['filter[id_category_default]'] = (int)$filters['id_category'];
         }
 
         if (!empty($filters['search'])) {
@@ -183,27 +207,14 @@ class PrestaShopApiService
      */
     public function getProduct($id)
     {
-        try {
-            $data = $this->makeRequest("products/$id", ['display' => 'full']);
-            
-            // La API puede devolver el producto de dos formas:
-            // 1. Como objeto único: {"product": {...}}
-            // 2. Como array de un elemento: {"products": [{...}]}
-            
-            if (isset($data['product'])) {
-                // Formato 1: objeto único
-                return $data['product'];
-            } elseif (isset($data['products']) && is_array($data['products']) && count($data['products']) > 0) {
-                // Formato 2: array con un elemento
-                return $data['products'][0];
-            } else {
-                error_log("API Response for product $id: " . print_r($data, true));
-                throw new \Exception("La respuesta de la API no contiene 'product' ni 'products'. Respuesta: " . json_encode($data));
-            }
-        } catch (\Exception $e) {
-            error_log("Error en getProduct($id): " . $e->getMessage());
-            throw $e;
+        $data = $this->makeRequest("products/" . (int)$id, ['display' => 'full']);
+
+        if (isset($data['product'])) {
+            return $data['product'];
+        } elseif (isset($data['products'][0])) {
+            return $data['products'][0];
         }
+        throw new \Exception("La respuesta de la API no contiene 'product' ni 'products'.");
     }
 
     /**
@@ -213,30 +224,28 @@ class PrestaShopApiService
     {
         $params = [
             'display' => 'full',
-            'limit' => $limit
+            'limit'   => (int)$limit
         ];
-        
         $data = $this->makeRequest('categories', $params);
         return $data['categories'] ?? [];
     }
-    
+
     /**
      * Obtener una categoría por ID
      */
     public function getCategory($id)
     {
         try {
-            $data = $this->makeRequest("categories/$id", ['display' => 'full']);
-            
+            $data = $this->makeRequest("categories/" . (int)$id, ['display' => 'full']);
+
             if (isset($data['category'])) {
                 return $data['category'];
-            } elseif (isset($data['categories']) && is_array($data['categories']) && count($data['categories']) > 0) {
+            } elseif (isset($data['categories'][0])) {
                 return $data['categories'][0];
             }
-            
             return null;
         } catch (\Exception $e) {
-            error_log("Error en getCategory($id): " . $e->getMessage());
+            $this->log("getCategory($id) error: " . $e->getMessage());
             return null;
         }
     }
@@ -246,7 +255,7 @@ class PrestaShopApiService
      */
     public function getProductsByCategory($categoryId, $limit = 100)
     {
-        return $this->getProducts($limit, 0, ['id_category' => $categoryId]);
+        return $this->getProducts((int)$limit, 0, ['id_category' => (int)$categoryId]);
     }
 
     /**
@@ -255,7 +264,7 @@ class PrestaShopApiService
     public function getProductImages($productId)
     {
         try {
-            $data = $this->makeRequest("images/products/$productId", ['display' => 'full']);
+            $data = $this->makeRequest("images/products/" . (int)$productId, ['display' => 'full']);
             return $data['images'] ?? [];
         } catch (\Exception $e) {
             return [];
@@ -267,66 +276,66 @@ class PrestaShopApiService
      */
     public function downloadImage($productId, $imageId)
     {
-        $url = $this->apiUrl . "/api/images/products/$productId/$imageId";
-        
-        // Usar la MISMA configuración que makeRequest()
+        $url = $this->apiUrl . "/api/images/products/" . (int)$productId . "/" . (int)$imageId;
+
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
+        // Auth básica
         curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
         curl_setopt($ch, CURLOPT_USERPWD, $this->apiKey . ':');
-        
-        // SSL
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-        
-        // Forzar IPv4
-        curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
-        
+
+        // Retorno + compresión
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_ENCODING, '');
+
         // Timeouts
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);
         curl_setopt($ch, CURLOPT_TIMEOUT, 60);
-        
-        // Seguir redirecciones
+
+        // Redirecciones
         curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
         curl_setopt($ch, CURLOPT_MAXREDIRS, 5);
-        
-        // User Agent
-        curl_setopt($ch, CURLOPT_USERAGENT, 'PrestaShop-Sync-Module/1.0');
-        
-        // DNS cache
-        curl_setopt($ch, CURLOPT_DNS_CACHE_TIMEOUT, 120);
-        
-        // *** IMPORTANTE: Si hay IP personalizada, usarla ***
+
+        // IPv4
+        curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+
+        // SSL permisivo
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+
+        // Cabeceras
+        $headers = ['Accept: image/jpeg', 'Accept-Encoding: gzip'];
+        if (!empty($this->domain)) {
+            $headers[] = 'Host: ' . $this->domain;
+        }
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+
+        // Pin DNS
         if ($this->customIp && $this->domain) {
             $parsed = parse_url($url);
-            $port = $parsed['port'] ?? ($parsed['scheme'] === 'https' ? 443 : 80);
-            $resolve = ["{$this->domain}:{$port}:{$this->customIp}"];
-            curl_setopt($ch, CURLOPT_RESOLVE, $resolve);
-            
-            if ($this->debug) {
-                error_log("Download image using custom IP: {$this->domain}:{$port} -> {$this->customIp}");
-            }
+            $scheme = $parsed['scheme'] ?? 'https';
+            $port = $parsed['port'] ?? ($scheme === 'https' ? 443 : 80);
+            curl_setopt($ch, CURLOPT_RESOLVE, [ "{$this->domain}:{$port}:{$this->customIp}" ]);
+            $this->log("Download image using custom IP: {$this->domain}:{$port} -> {$this->customIp}");
         }
 
         $imageData = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $error = curl_error($ch);
-        $errorNo = curl_errno($ch);
-        
-        if ($this->debug) {
-            error_log("Download image - URL: $url");
-            error_log("Download image - HTTP Code: $httpCode");
-            error_log("Download image - Size: " . strlen($imageData) . " bytes");
-            if ($error) {
-                error_log("Download image - Error: $error (Code: $errorNo)");
-            }
+        $httpCode  = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err       = curl_error($ch);
+
+        $this->log("Download image - URL: $url");
+        $this->log("Download image - HTTP Code: $httpCode");
+        if ($imageData !== false) {
+            $this->log("Download image - Size: " . strlen((string)$imageData) . " bytes");
         }
-        
+        if ($err) {
+            $this->log("Download image - Error: $err");
+        }
+
         curl_close($ch);
 
-        if ($httpCode !== 200 || $error) {
-            error_log("Error downloading image $productId/$imageId: HTTP $httpCode, Error: $error");
+        if ($httpCode !== 200 || $imageData === false) {
             return false;
         }
 
@@ -341,7 +350,7 @@ class PrestaShopApiService
         try {
             $data = $this->makeRequest("combinations", [
                 'display' => 'full',
-                'filter[id_product]' => $productId
+                'filter[id_product]' => (int)$productId
             ]);
             return $data['combinations'] ?? [];
         } catch (\Exception $e) {
@@ -349,60 +358,120 @@ class PrestaShopApiService
         }
     }
 
-    /**
-     * Obtener características de un producto
-     */
-    public function getProductFeatures($productId)
+       /** Normaliza un campo multilenguaje a string (devuelve el de id_lang=1 si existe). */
+    private function normalizeLangField($field, $preferredIdLang = 1)
     {
-        try {
-            $product = $this->getProduct($productId);
-            return $product['associations']['product_features'] ?? [];
-        } catch (\Exception $e) {
-            return [];
+        if (!isset($field)) {
+            return '';
         }
+        // Caso: ["language" => [ ["id"=>1,"value"=>"..."], ["id"=>2,"value"=>"..."] ]]
+        if (is_array($field) && isset($field['language']) && is_array($field['language'])) {
+            foreach ($field['language'] as $node) {
+                if (isset($node['id']) && (int)$node['id'] === (int)$preferredIdLang && isset($node['value'])) {
+                    return (string)$node['value'];
+                }
+            }
+            // si no hay preferred, toma el primero con value
+            foreach ($field['language'] as $node) {
+                if (isset($node['value'])) {
+                    return (string)$node['value'];
+                }
+            }
+            return '';
+        }
+
+        // Caso: array indexado por id_lang: ["1"=>"...", "2"=>"..."]
+        if (is_array($field)) {
+            if (isset($field[$preferredIdLang])) {
+                return (string)$field[$preferredIdLang];
+            }
+            $first = reset($field);
+            return (string)$first;
+        }
+
+        // Caso: string plano
+        return (string)$field;
     }
 
-    /**
-     * Obtener datos de una característica (feature)
-     */
+    /** Obtener datos de una característica (feature) */
     public function getFeature($featureId)
     {
         try {
-            $data = $this->makeRequest("product_features/$featureId", ['display' => 'full']);
-            
+            $data = $this->makeRequest("product_features/{$featureId}", ['display' => 'full']);
+
+            $row = null;
             if (isset($data['product_feature'])) {
-                return $data['product_feature'];
-            } elseif (isset($data['product_features']) && is_array($data['product_features']) && count($data['product_features']) > 0) {
-                return $data['product_features'][0];
+                $row = $data['product_feature'];
+            } elseif (!empty($data['product_features'][0])) {
+                $row = $data['product_features'][0];
             }
-            
-            return null;
+            if (!$row) {
+                return null;
+            }
+
+            // Normaliza nombre
+            if (isset($row['name'])) {
+                $row['name'] = $this->normalizeLangField($row['name'], 1);
+            }
+            return $row;
         } catch (\Exception $e) {
             error_log("Error en getFeature($featureId): " . $e->getMessage());
             return null;
         }
     }
 
-    /**
-     * Obtener datos de un valor de característica (feature value)
-     */
+    /** Obtener datos de un valor de característica (feature value) */
     public function getFeatureValue($featureValueId)
     {
         try {
-            $data = $this->makeRequest("product_feature_values/$featureValueId", ['display' => 'full']);
-            
+            $data = $this->makeRequest("product_feature_values/{$featureValueId}", ['display' => 'full']);
+
+            $row = null;
             if (isset($data['product_feature_value'])) {
-                return $data['product_feature_value'];
-            } elseif (isset($data['product_feature_values']) && is_array($data['product_feature_values']) && count($data['product_feature_values']) > 0) {
-                return $data['product_feature_values'][0];
+                $row = $data['product_feature_value'];
+            } elseif (!empty($data['product_feature_values'][0])) {
+                $row = $data['product_feature_values'][0];
             }
-            
-            return null;
+            if (!$row) {
+                return null;
+            }
+
+            // Normaliza value
+            if (isset($row['value'])) {
+                $row['value'] = $this->normalizeLangField($row['value'], 1);
+            }
+            return $row;
         } catch (\Exception $e) {
             error_log("Error en getFeatureValue($featureValueId): " . $e->getMessage());
             return null;
         }
     }
+    
+    /**
+     * Obtener stock (stock_availables) de un producto remoto.
+     * Devuelve total (suma de todas las combinaciones) y el detalle de filas.
+     */
+    public function getStockForProduct($productId)
+    {
+        try {
+            $data = $this->makeRequest('stock_availables', [
+                'filter[id_product]' => (int)$productId,
+                'display' => '[id,quantity,id_product_attribute]'
+            ]);
+    
+            $rows = $data['stock_availables'] ?? [];
+            $total = 0;
+            foreach ($rows as $row) {
+                $total += (int)($row['quantity'] ?? 0);
+            }
+    
+            return ['total' => $total, 'rows' => $rows];
+        } catch (\Exception $e) {
+            // Si falla el WS, devolvemos null para usar fallback
+            return ['total' => null, 'rows' => []];
+        }
+    }
+
 }
 
 

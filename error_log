@@ -1,0 +1,510 @@
+[05-Nov-2025 22:57:07 Europe/Madrid] PHP Warning:  require_once(/home/newtest/public_html/modules/config/config.inc.php): Failed to open stream: No such file or directory in /home/newtest/public_html/modules/sync_ps_to_ps_importer/test.php on line 8
+[05-Nov-2025 22:57:07 Europe/Madrid] PHP Fatal error:  Uncaught Error: Failed opening required '/home/newtest/public_html/modules/config/config.inc.php' (include_path='.:/opt/cpanel/ea-php82/root/usr/share/pear') in /home/newtest/public_html/modules/sync_ps_to_ps_importer/test.php:8
+Stack trace:
+#0 {main}
+  thrown in /home/newtest/public_html/modules/sync_ps_to_ps_importer/test.php on line 8
+[05-Nov-2025 22:58:42 Europe/Madrid] Using custom IP resolution: newgoparket.com:443 -> 51.210.12.221
+[05-Nov-2025 22:58:42 Europe/Madrid] API Request: https://newgoparket.com/api/products/62553?output_format=JSON&display=full
+[05-Nov-2025 22:58:42 Europe/Madrid] HTTP Code: 200
+[05-Nov-2025 22:58:42 Europe/Madrid] cURL Error No: 0
+[05-Nov-2025 22:58:42 Europe/Madrid] cURL Error: 
+[05-Nov-2025 22:58:42 Europe/Madrid] Response: {"products":[{"id":62553,"id_manufacturer":"43","id_supplier":"0","id_category_default":"57","new":null,"cache_default_attribute":"0","id_default_image":"6451","id_default_combination":0,"id_tax_rules_group":"7","position_in_category":"1302","manufacturer_name":"Quick step","quantity":"0","type":"simple","id_shop_default":"1","reference":"CRH3175","supplier_reference":"","location":"","width":"0.000000","height":"0.000000","depth":"0.000000","weight":"0.000000","quantity_discount":"0","ean13":""
+[05-Nov-2025 22:58:42 Europe/Madrid] API Response for product 62553: Array
+(
+    [products] => Array
+        (
+            [0] => Array
+                (
+                    [id] => 62553
+                    [id_manufacturer] => 43
+                    [id_supplier] => 0
+                    [id_category_default] => 57
+                    [new] => 
+                    [cache_default_attribute] => 0
+                    [id_default_image] => 6451
+                    [id_default_combination] => 0
+                    [id_tax_rules_group] => 7
+                    [position_in_category] => 1302
+                    [manufacturer_name] => Quick step
+                    [quantity] => 0
+                    [type] => simple
+                    [id_shop_default] => 1
+                    [reference] => CRH3175
+                    [supplier_reference] => 
+                    [location] => 
+                    [width] => 0.000000
+                    [height] => 0.000000
+                    [depth] => 0.000000
+                    [weight] => 0.000000
+                    [quantity_discount] => 0
+                    [ean13] => 
+                    [isbn] => 
+                    [upc] => 
+                    [mpn] => 
+                    [cache_is_pack] => 0
+                    [cache_has_attachments] => 0
+                    [is_virtual] => 0
+                    [state] => 1
+                    [additional_delivery_times] => 1
+                    [delivery_in_stock] => 
+                    [delivery_out_stock] => 
+                    [product_type] => standard
+                    [on_sale] => 0
+                    [online_only] => 0
+                    [ecotax] => 0.000000
+                    [minimal_quantity] => 1
+                    [low_stock_threshold] => 
+                    [low_stock_alert] => 0
+                    [price] => 33.545455
+                    [wholesale_price] => 0.000000
+                    [unity] => m2
+                    [unit_price_ratio] => 1.824114
+                    [additional_shipping_cost] => 0.000000
+                    [customizable] => 0
+                    [text_fields] => 0
+                    [uploadable_files] => 0
+                    [active] => 1
+                    [redirect_type] => 301-category
+                    [id_type_redirected] => 0
+                    [available_for_order] => 1
+                    [available_date] => 0000-00-00
+                    [show_condition] => 0
+                    [condition] => new
+                    [show_price] => 1
+                    [indexed] => 1
+                    [visibility] => both
+                    [advanced_stock_management] => 0
+                    [date_add] => 2024-03-22 17:20:05
+                    [date_upd] => 2024-08-28 09:05:28
+                    [pack_stock_type] => 3
+                    [meta_description] => Descripción
+                    [meta_keywords] => 
+                    [meta_title] => QUICK STEP CREO CRH3175 Roble Beige Louisiana
+                    [link_rewrite] => quick-step-creo-crh3175-roble-beige-louisiana
+                    [name] => QUICK STEP CREO CRH3175 Roble Beige Louisiana
+                    [description] => <p>Suelo laminado QUICK STEP UNICLIC gama CREO, acabado CRH3175 Roble Beige Lousiana. Sistema clic UNILIN prácticamente HERMÉTICO, fácil de montar y fiable. Tablero HDF resistente a la humedad. Capa de resistencia superior al desgaste, las manchas y los arañazos con tecnología STRACH WARD. Antiestático, con acabados de calidad y gran nitidez. Son RESISTENTES AL AGUA en superficie HYDROSEAL. Vida útil muy larga, fáciles de mantener, con ACCESORIOS a JUEGO. Etiqueta ecológica UE Ecolabel.</p>
+                    [description_short] => 
+                    [available_now] => 
+                    [available_later] => 
+                    [associations] => Array
+                        (
+                            [categories] => Array
+                                (
+                                    [0] => Array
+                                        (
+                                            [id] => 2
+                                        )
+
+                                    [1] => Array
+                                        (
+                                            [id] => 57
+                                        )
+
+                                    [2] => Array
+                                        (
+                                            [id] => 64
+                                        )
+
+                                    [3] => Array
+                                        (
+                                            [id] => 66
+                                        )
+
+                                )
+
+                            [images] => Array
+                                (
+                                    [0] => Array
+                                        (
+                                            [id] => 6451
+                                        )
+
+                                    [1] => Array
+                                        (
+                                            [id] => 6452
+                                        )
+
+                                    [2] => Array
+                                        (
+                                            [id] => 6474
+                                        )
+
+                                )
+
+                            [product_features] => Array
+                                (
+                                    [0] => Array
+                                        (
+                                            [id] => 39
+                                            [id_feature_value] => 364
+                                        )
+
+                                    [1] => Array
+                                        (
+                                            [id] => 40
+                                            [id_feature_value] => 3189
+                                        )
+
+                                    [2] => Array
+                                        (
+                                            [id] => 41
+                                            [id_feature_value] => 3190
+                                        )
+
+                                    [3] => Array
+                                        (
+                                            [id] => 42
+                                            [id_feature_value] => 3191
+                                        )
+
+                                    [4] => Array
+                                        (
+                                            [id] => 43
+                                            [id_feature_value] => 368
+                                        )
+
+                                    [5] => Array
+                                        (
+                                            [id] => 44
+                                            [id_feature_value] => 468
+                                        )
+
+                                    [6] => Array
+                                        (
+                                            [id] => 45
+                                            [id_feature_value] => 370
+                                        )
+
+                                    [7] => Array
+                                        (
+                                            [id] => 46
+                                            [id_feature_value] => 3192
+                                        )
+
+                                    [8] => Array
+                                        (
+                                            [id] => 47
+                                            [id_feature_value] => 3193
+                                        )
+
+                                    [9] => Array
+                                        (
+                                            [id] => 48
+                                            [id_feature_value] => 527
+                                        )
+
+                                    [10] => Array
+                                        (
+                                            [id] => 49
+                                            [id_feature_value] => 374
+                                        )
+
+                                    [11] => Array
+                                        (
+                                            [id] => 51
+                                            [id_feature_value] => 376
+                                        )
+
+                                    [12] => Array
+                                        (
+                                            [id] => 52
+                                            [id_feature_value] => 3197
+                                        )
+
+                                    [13] => Array
+                                        (
+                                            [id] => 53
+                                            [id_feature_value] => 378
+                                        )
+
+                                    [14] => Array
+                                        (
+                                            [id] => 54
+                                            [id_feature_value] => 3198
+                                        )
+
+                                    [15] => Array
+                                        (
+                                            [id] => 55
+                                            [id_feature_value] => 3194
+                                        )
+
+                                    [16] => Array
+                                        (
+                                            [id] => 56
+                                            [id_feature_value] => 381
+                                        )
+
+                                    [17] => Array
+                                        (
+                                            [id] => 57
+                                            [id_feature_value] => 421
+                                        )
+
+                                    [18] => Array
+                                        (
+                                            [id] => 58
+                                            [id_feature_value] => 3195
+                                        )
+
+                                    [19] => Array
+                                        (
+                                            [id] => 59
+                                            [id_feature_value] => 530
+                                        )
+
+                                    [20] => Array
+                                        (
+                                            [id] => 60
+                                            [id_feature_value] => 1149
+                                        )
+
+                                    [21] => Array
+                                        (
+                                            [id] => 61
+                                            [id_feature_value] => 2632
+                                        )
+
+                                    [22] => Array
+                                        (
+                                            [id] => 62
+                                            [id_feature_value] => 3196
+                                        )
+
+                                    [23] => Array
+                                        (
+                                            [id] => 71
+                                            [id_feature_value] => 1146
+                                        )
+
+                                    [24] => Array
+                                        (
+                                            [id] => 75
+                                            [id_feature_value] => 2634
+                                        )
+
+                                    [25] => Array
+                                        (
+                                            [id] => 79
+                                            [id_feature_value] => 3267
+                                        )
+
+                                    [26] => Array
+                                        (
+                                            [id] => 99
+                                            [id_feature_value] => 3199
+                                        )
+
+                                    [27] => Array
+                                        (
+                                            [id] => 100
+                                            [id_feature_value] => 3200
+                                        )
+
+                                    [28] => Array
+                                        (
+                                            [id] => 101
+                                            [id_feature_value] => 3909
+                                        )
+
+                                )
+
+                            [stock_availables] => Array
+                                (
+                                    [0] => Array
+                                        (
+                                            [id] => 8575
+                                            [id_product_attribute] => 0
+                                        )
+
+                                )
+
+                            [accessories] => Array
+                                (
+                                    [0] => Array
+                                        (
+                                            [id] => 63251
+                                        )
+
+                                    [1] => Array
+                                        (
+                                            [id] => 63252
+                                        )
+
+                                    [2] => Array
+                                        (
+                                            [id] => 63253
+                                        )
+
+                                    [3] => Array
+                                        (
+                                            [id] => 63254
+                                        )
+
+                                    [4] => Array
+                                        (
+                                            [id] => 63255
+                                        )
+
+                                    [5] => Array
+                                        (
+                                            [id] => 63256
+                                        )
+
+                                    [6] => Array
+                                        (
+                                            [id] => 63257
+                                        )
+
+                                    [7] => Array
+                                        (
+                                            [id] => 63258
+                                        )
+
+                                    [8] => Array
+                                        (
+                                            [id] => 63259
+                                        )
+
+                                    [9] => Array
+                                        (
+                                            [id] => 63298
+                                        )
+
+                                    [10] => Array
+                                        (
+                                            [id] => 63374
+                                        )
+
+                                    [11] => Array
+                                        (
+                                            [id] => 63375
+                                        )
+
+                                    [12] => Array
+                                        (
+                                            [id] => 63376
+                                        )
+
+                                    [13] => Array
+                                        (
+                                            [id] => 63440
+                                        )
+
+                                    [14] => Array
+                                        (
+                                            [id] => 63558
+                                        )
+
+                                    [15] => Array
+                                        (
+                                            [id] => 63678
+                                        )
+
+                                    [16] => Array
+                                        (
+                                            [id] => 63679
+                                        )
+
+                                    [17] => Array
+                                        (
+                                            [id] => 63680
+                                        )
+
+                                    [18] => Array
+                                        (
+                                            [id] => 63681
+                                        )
+
+                                    [19] => Array
+                                        (
+                                            [id] => 63682
+                                        )
+
+                                    [20] => Array
+                                        (
+                                            [id] => 63683
+                                        )
+
+                                    [21] => Array
+                                        (
+                                            [id] => 63684
+                                        )
+
+                                    [22] => Array
+                                        (
+                                            [id] => 63685
+                                        )
+
+                                    [23] => Array
+                                        (
+                                            [id] => 63686
+                                        )
+
+                                    [24] => Array
+                                        (
+                                            [id] => 63687
+                                        )
+
+                                    [25] => Array
+                                        (
+                                            [id] => 63688
+                                        )
+
+                                    [26] => Array
+                                        (
+                                            [id] => 63689
+                                        )
+
+                                    [27] => Array
+                                        (
+                                            [id] => 63690
+                                        )
+
+                                    [28] => Array
+                                        (
+                                            [id] => 63691
+                                        )
+
+                                    [29] => Array
+                                        (
+                                            [id] => 63692
+                                        )
+
+                                    [30] => Array
+                                        (
+                                            [id] => 63693
+                                        )
+
+                                    [31] => Array
+                                        (
+                                            [id] => 63694
+                                        )
+
+                                    [32] => Array
+                                        (
+                                            [id] => 63695
+                                        )
+
+                                    [33] => Array
+                                        (
+                                            [id] => 63696
+                                        )
+
+                                )
+
+                        )
+
+                )
+
+        )
+
+)
+
+[05-Nov-2025 22:58:42 Europe/Madrid] Error en getProduct(62553): La respuesta de la API no contiene 'product'. Respuesta: {"products":[{"id":62553,"id_manufacturer":"43","id_supplier":"0","id_category_default":"57","new":null,"cache_default_attribute":"0","id_default_image":"6451","id_default_combination":0,"id_tax_rules_group":"7","position_in_category":"1302","manufacturer_name":"Quick step","quantity":"0","type":"simple","id_shop_default":"1","reference":"CRH3175","supplier_reference":"","location":"","width":"0.000000","height":"0.000000","depth":"0.000000","weight":"0.000000","quantity_discount":"0","ean13":"","isbn":"","upc":"","mpn":"","cache_is_pack":"0","cache_has_attachments":"0","is_virtual":"0","state":"1","additional_delivery_times":"1","delivery_in_stock":"","delivery_out_stock":"","product_type":"standard","on_sale":"0","online_only":"0","ecotax":"0.000000","minimal_quantity":"1","low_stock_threshold":null,"low_stock_alert":"0","price":"33.545455","wholesale_price":"0.000000","unity":"m2","unit_price_ratio":"1.824114","additional_shipping_cost":"0.000000","customizable":"0","text_fields":"0","uploadable_files":"0","active":"1","redirect_type":"301-category","id_type_redirected":"0","available_for_order":"1","available_date":"0000-00-00","show_condition":"0","condition":"new","show_price":"1","indexed":"1","visibility":"both","advanced_stock_management":"0","date_add":"2024-03-22 17:20:05","date_upd":"2024-08-28 09:05:28","pack_stock_type":"3","meta_description":"Descripci\u00f3n","meta_keywords":"","meta_title":"QUICK STEP CREO CRH3175 Roble Beige Louisiana","link_rewrite":"quick-step-creo-crh3175-roble-beige-louisiana","name":"QUICK STEP CREO CRH3175 Roble Beige Louisiana","description":"<p>Suelo laminado QUICK STEP UNICLIC gama CREO, acabado CRH3175 Roble Beige Lousiana. Sistema clic UNILIN pr\u00e1cticamente HERM\u00c9TICO, f\u00e1cil de montar y fiable. Tablero HDF resistente a la humedad. Capa de resistencia superior al desgaste, las manchas y los ara\u00f1azos con tecnolog\u00eda STRACH WARD. Antiest\u00e1tico, con acabados de calidad y gran nitidez. Son RESISTENTES AL AGUA en superficie HYDROSEAL. Vida \u00fatil muy larga, f\u00e1ciles de mantener, con ACCESORIOS a JUEGO. Etiqueta ecol\u00f3gica UE Ecolabel.<\/p>","description_short":"","available_now":"","available_later":"","associations":{"categories":[{"id":"2"},{"id":"57"},{"id":"64"},{"id":"66"}],"images":[{"id":"6451"},{"id":"6452"},{"id":"6474"}],"product_features":[{"id":"39","id_feature_value":"364"},{"id":"40","id_feature_value":"3189"},{"id":"41","id_feature_value":"3190"},{"id":"42","id_feature_value":"3191"},{"id":"43","id_feature_value":"368"},{"id":"44","id_feature_value":"468"},{"id":"45","id_feature_value":"370"},{"id":"46","id_feature_value":"3192"},{"id":"47","id_feature_value":"3193"},{"id":"48","id_feature_value":"527"},{"id":"49","id_feature_value":"374"},{"id":"51","id_feature_value":"376"},{"id":"52","id_feature_value":"3197"},{"id":"53","id_feature_value":"378"},{"id":"54","id_feature_value":"3198"},{"id":"55","id_feature_value":"3194"},{"id":"56","id_feature_value":"381"},{"id":"57","id_feature_value":"421"},{"id":"58","id_feature_value":"3195"},{"id":"59","id_feature_value":"530"},{"id":"60","id_feature_value":"1149"},{"id":"61","id_feature_value":"2632"},{"id":"62","id_feature_value":"3196"},{"id":"71","id_feature_value":"1146"},{"id":"75","id_feature_value":"2634"},{"id":"79","id_feature_value":"3267"},{"id":"99","id_feature_value":"3199"},{"id":"100","id_feature_value":"3200"},{"id":"101","id_feature_value":"3909"}],"stock_availables":[{"id":"8575","id_product_attribute":"0"}],"accessories":[{"id":"63251"},{"id":"63252"},{"id":"63253"},{"id":"63254"},{"id":"63255"},{"id":"63256"},{"id":"63257"},{"id":"63258"},{"id":"63259"},{"id":"63298"},{"id":"63374"},{"id":"63375"},{"id":"63376"},{"id":"63440"},{"id":"63558"},{"id":"63678"},{"id":"63679"},{"id":"63680"},{"id":"63681"},{"id":"63682"},{"id":"63683"},{"id":"63684"},{"id":"63685"},{"id":"63686"},{"id":"63687"},{"id":"63688"},{"id":"63689"},{"id":"63690"},{"id":"63691"},{"id":"63692"},{"id":"63693"},{"id":"63694"},{"id":"63695"},{"id":"63696"}]}}]}
+[05-Nov-2025 23:02:36 Europe/Madrid] Using custom IP resolution: newgoparket.com:443 -> 51.210.12.221
+[05-Nov-2025 23:02:36 Europe/Madrid] API Request: https://newgoparket.com/api/products/62553?output_format=JSON&display=full
+[05-Nov-2025 23:02:36 Europe/Madrid] HTTP Code: 200
+[05-Nov-2025 23:02:36 Europe/Madrid] cURL Error No: 0
+[05-Nov-2025 23:02:36 Europe/Madrid] cURL Error: 
+[05-Nov-2025 23:02:36 Europe/Madrid] Response: {"products":[{"id":62553,"id_manufacturer":"43","id_supplier":"0","id_category_default":"57","new":null,"cache_default_attribute":"0","id_default_image":"6451","id_default_combination":0,"id_tax_rules_group":"7","position_in_category":"1302","manufacturer_name":"Quick step","quantity":"0","type":"simple","id_shop_default":"1","reference":"CRH3175","supplier_reference":"","location":"","width":"0.000000","height":"0.000000","depth":"0.000000","weight":"0.000000","quantity_discount":"0","ean13":""

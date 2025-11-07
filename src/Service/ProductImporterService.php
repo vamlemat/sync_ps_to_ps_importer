@@ -2,9 +2,6 @@
 
 namespace SyncPsToPsImporter\Service;
 
-/**
- * Servicio para importar productos desde PrestaShop remoto al local
- */
 class ProductImporterService
 {
     private $apiService;
@@ -17,9 +14,6 @@ class ProductImporterService
         $this->context = \Context::getContext();
     }
 
-    /**
-     * Importar un producto completo
-     */
     public function importProduct($remoteProductId)
     {
         $this->errors = [];
@@ -27,181 +21,240 @@ class ProductImporterService
 
         try {
             $this->errors[] = "=== Iniciando importación del producto ID: $remoteProductId ===";
-            
-            // PASO 1: Obtener datos del producto remoto
+
+            // [1] Datos remotos
             $this->errors[] = "[1/9] Obteniendo datos del producto remoto...";
             $remoteProduct = $this->apiService->getProduct($remoteProductId);
             if (!$remoteProduct) {
                 throw new \Exception("No se pudo obtener el producto $remoteProductId desde la API");
             }
-            
-            $productName = is_array($remoteProduct['name'] ?? null) 
+            $productName = is_array($remoteProduct['name'] ?? null)
                 ? ($remoteProduct['name'][1] ?? reset($remoteProduct['name']))
                 : ($remoteProduct['name'] ?? 'Sin nombre');
-            
             $this->errors[] = "✓ Producto obtenido: $productName";
 
-            // PASO 2: Verificar si el producto ya existe
+            // [2] ¿Existe por referencia?
             $this->errors[] = "[2/9] Verificando si el producto ya existe...";
-            $reference = $remoteProduct['reference'] ?? '';
+            $reference = (string)($remoteProduct['reference'] ?? '');
             $localProductId = 0;
-            
-            if (!empty($reference)) {
-                $sql = 'SELECT id_product FROM ' . _DB_PREFIX_ . 'product WHERE reference = "' . pSQL($reference) . '"';
+            $this->errors[] = "Referencia remota (raw): '" . $reference . "' (len=" . \Tools::strlen($reference) . ")";
+            if ($reference !== '') {
+                $ref = pSQL($reference, true);
+                $sql = 'SELECT `id_product` FROM `'._DB_PREFIX_.'product` WHERE `reference`=\''.$ref.'\'';
+                $this->errors[] = 'SQL DEBUG (product by reference) => '.$sql;
                 $localProductId = (int)\Db::getInstance()->getValue($sql);
             }
-            
-            if ($localProductId) {
-                $this->errors[] = "✓ Producto existente (ID: $localProductId), actualizando...";
-                $product = new \Product($localProductId);
-            } else {
-                $this->errors[] = "✓ Producto nuevo, creando...";
-                $product = new \Product();
+            $product = $localProductId ? new \Product($localProductId) : new \Product();
+            $this->errors[] = $localProductId
+                ? "✓ Producto existente (ID: $localProductId), actualizando..."
+                : "✓ Producto nuevo, creando...";
+
+            // [3] Datos básicos
+            $this->errors[] = "[3/9] Asignando datos básicos...";
+            $product->reference        = $reference;
+            $product->ean13            = $remoteProduct['ean13'] ?? '';
+            $product->upc              = $remoteProduct['upc'] ?? '';
+            $product->price            = (float)($remoteProduct['price'] ?? 0);
+            $product->wholesale_price  = (float)($remoteProduct['wholesale_price'] ?? 0);
+            $product->active           = (int)($remoteProduct['active'] ?? 1);
+            $product->id_category_default = 2;
+
+            // Impuestos: fija grupo local 21%
+            $product->id_tax_rules_group = 1;
+            $this->errors[] = "✓ Grupo de impuestos asignado (id_tax_rules_group = {$product->id_tax_rules_group})";
+
+            // Precio por unidad (unit_price + unity) con redondeo a 6 decimales
+            try {
+                $unityRemote     = trim((string)($remoteProduct['unity'] ?? ''));
+                $unitPriceRemote = (float)($remoteProduct['unit_price'] ?? 0);
+                $packM2 = 0.0;
+
+                // Intentar leer "Packaging" de las características (m2 por caja)
+                if (isset($remoteProduct['associations']['product_features']) && is_array($remoteProduct['associations']['product_features'])) {
+                    foreach ($remoteProduct['associations']['product_features'] as $frow) {
+                        $fid  = (int)($frow['id'] ?? 0);
+                        $fval = (int)($frow['id_feature_value'] ?? 0);
+                        if (!$fid || !$fval) { continue; }
+                        $remoteFeature = $this->apiService->getFeature($fid);
+                        if ($remoteFeature) {
+                            $fname = is_array($remoteFeature['name'] ?? null)
+                                ? ($remoteFeature['name'][1] ?? reset($remoteFeature['name']))
+                                : ($remoteFeature['name'] ?? '');
+                            if (\Tools::strtolower($fname) === \Tools::strtolower('Packaging')) {
+                                $remoteValue = $this->apiService->getFeatureValue($fval);
+                                $valText = is_array($remoteValue['value'] ?? null)
+                                    ? ($remoteValue['value'][1] ?? reset($remoteValue['value']))
+                                    : ($remoteValue['value'] ?? '');
+                                $valText = str_replace(',', '.', $valText);
+                                $packM2  = (float)preg_replace('/[^0-9.]/', '', $valText);
+                            }
+                        }
+                    }
+                }
+
+                $unityFinal = ($unityRemote !== '' ? $unityRemote : 'm2');
+                $unitPriceFinal = 0.0;
+
+                if ($unitPriceRemote > 0) {
+                    $unitPriceFinal = (float)\Tools::ps_round($unitPriceRemote, 6);
+                    $this->errors[] = "✓ Unit price remoto: {$unitPriceFinal}";
+                } else {
+                    if ($packM2 > 0) {
+                        // precio por m2 = price / m2_por_caja
+                        $calc = ((float)$product->price) / $packM2;
+                        $unitPriceFinal = (float)\Tools::ps_round($calc, 6);
+                        $this->errors[] = "✓ Unit price calculado: price/packM2 = {$product->price}/{$packM2} = {$unitPriceFinal}";
+                    } else {
+                        // fallback: igual al price (válido y simple)
+                        $unitPriceFinal = (float)\Tools::ps_round((float)$product->price, 6);
+                        $this->errors[] = "✓ Unit price por defecto (price): {$unitPriceFinal}";
+                    }
+                }
+
+                // límites de seguridad para pasar isPrice
+                if ($unitPriceFinal < 0) { $unitPriceFinal = 0.0; }
+                if ($unitPriceFinal > 9999999999) { $unitPriceFinal = 0.0; }
+
+                $product->unit_price = $unitPriceFinal; // <= 6 decimales
+                $product->unity      = $unityFinal;
+
+            } catch (\Exception $e) {
+                $this->errors[] = "⚠ Unit price: ".$e->getMessage();
+                // En caso de error, no bloqueamos el guardado
+                $product->unit_price = 0.0;
+                $product->unity = 'm2';
             }
 
-            // PASO 3: Asignar datos básicos
-            $this->errors[] = "[3/9] Asignando datos básicos...";
-            
-            $product->reference = $reference;
-            $product->ean13 = $remoteProduct['ean13'] ?? '';
-            $product->upc = $remoteProduct['upc'] ?? '';
-            $product->price = (float)($remoteProduct['price'] ?? 0);
-            $product->wholesale_price = (float)($remoteProduct['wholesale_price'] ?? 0);
-            $product->active = (int)($remoteProduct['active'] ?? 1);
-            $product->id_tax_rules_group = (int)($remoteProduct['id_tax_rules_group'] ?? 1);
-            $product->id_category_default = 2; // Por ahora Home, luego mejoraremos
-            
-            // Asignar textos multiidioma
+            // Textos multiidioma
             $languages = \Language::getLanguages(false);
             foreach ($languages as $lang) {
-                $langId = $lang['id_lang'];
-                
-                $product->name[$langId] = $productName;
-                $product->description[$langId] = is_array($remoteProduct['description'] ?? null)
+                $id = (int)$lang['id_lang'];
+                $product->name[$id] = $productName;
+                $product->description[$id] = is_array($remoteProduct['description'] ?? null)
                     ? ($remoteProduct['description'][1] ?? reset($remoteProduct['description']))
                     : ($remoteProduct['description'] ?? '');
-                $product->description_short[$langId] = is_array($remoteProduct['description_short'] ?? null)
+                $product->description_short[$id] = is_array($remoteProduct['description_short'] ?? null)
                     ? ($remoteProduct['description_short'][1] ?? reset($remoteProduct['description_short']))
                     : ($remoteProduct['description_short'] ?? '');
-                $product->link_rewrite[$langId] = is_array($remoteProduct['link_rewrite'] ?? null)
+                $product->link_rewrite[$id] = is_array($remoteProduct['link_rewrite'] ?? null)
                     ? ($remoteProduct['link_rewrite'][1] ?? reset($remoteProduct['link_rewrite']))
                     : ($remoteProduct['link_rewrite'] ?? \Tools::str2url($productName));
-                $product->meta_title[$langId] = is_array($remoteProduct['meta_title'] ?? null)
+                $product->meta_title[$id] = is_array($remoteProduct['meta_title'] ?? null)
                     ? ($remoteProduct['meta_title'][1] ?? reset($remoteProduct['meta_title']))
                     : ($remoteProduct['meta_title'] ?? $productName);
             }
-            
             $this->errors[] = "✓ Datos básicos asignados";
 
-            // PASO 4: Guardar producto
+            // [4] Guardar
             $this->errors[] = "[4/9] Guardando producto...";
             if (!$product->save()) {
                 throw new \Exception("Error al guardar el producto en la base de datos");
             }
             $this->errors[] = "✓ Producto guardado (ID: {$product->id})";
 
-            // PASO 5: Asignar categorías CON JERARQUÍA COMPLETA
+            // [5] Categorías
             $this->errors[] = "[5/9] Creando/asignando categorías...";
             try {
-                $categories = [2]; // Siempre incluir Home
-                
-                // Obtener todas las categorías del producto desde associations
+                $categories = [2];
                 if (isset($remoteProduct['associations']['categories']) && is_array($remoteProduct['associations']['categories'])) {
-                    $this->errors[] = "  Producto tiene " . count($remoteProduct['associations']['categories']) . " categorías remotas";
-                    
+                    $this->errors[] = "  Producto tiene ".count($remoteProduct['associations']['categories'])." categorías remotas";
                     foreach ($remoteProduct['associations']['categories'] as $cat) {
                         $remoteCategoryId = (int)($cat['id'] ?? 0);
-                        if ($remoteCategoryId > 2) { // Omitir Home y Root
+                        if ($remoteCategoryId > 2) {
                             $localCategoryId = $this->createCategoryWithHierarchy($remoteCategoryId);
-                            if ($localCategoryId && !in_array($localCategoryId, $categories)) {
+                            if ($localCategoryId && !in_array($localCategoryId, $categories, true)) {
                                 $categories[] = $localCategoryId;
                             }
                         }
                     }
                 }
-                
-                // Asegurar que la categoría principal esté en la lista
-                if (!empty($product->id_category_default) && !in_array($product->id_category_default, $categories)) {
-                    $categories[] = $product->id_category_default;
+                if (!empty($product->id_category_default) && !in_array($product->id_category_default, $categories, true)) {
+                    $categories[] = (int)$product->id_category_default;
                 }
-                
                 $categories = array_unique($categories);
                 $product->updateCategories($categories);
-                $this->errors[] = "  ✓ Categorías asignadas: " . count($categories) . " categorías (IDs: " . implode(', ', $categories) . ")";
+                $this->errors[] = "  ✓ Categorías asignadas: ".count($categories)." (IDs: ".implode(', ', $categories).")";
             } catch (\Exception $e) {
-                $warnings[] = "Categorías: " . $e->getMessage();
-                $this->errors[] = "  ERROR en categorías: " . $e->getMessage();
+                $warnings[] = "Categorías: ".$e->getMessage();
+                $this->errors[] = "  ERROR en categorías: ".$e->getMessage();
             }
 
-            // PASO 6: Asignar fabricante
+            // [6] Fabricante
             $this->errors[] = "[6/9] Asignando fabricante...";
             try {
                 $manufacturerName = $remoteProduct['manufacturer_name'] ?? null;
                 if ($manufacturerName) {
-                    $sql = 'SELECT id_manufacturer FROM ' . _DB_PREFIX_ . 'manufacturer WHERE name = "' . pSQL($manufacturerName) . '"';
+                    $m = pSQL($manufacturerName, true);
+                    $sql = 'SELECT `id_manufacturer` FROM `'._DB_PREFIX_.'manufacturer` WHERE `name`=\''.$m.'\'';
+                    $this->errors[] = 'SQL DEBUG (manufacturer by name) => '.$sql;
                     $manufacturerId = (int)\Db::getInstance()->getValue($sql);
-                    
                     if (!$manufacturerId) {
-                        $manufacturer = new \Manufacturer();
-                        $manufacturer->name = $manufacturerName;
-                        $manufacturer->active = 1;
-                        if ($manufacturer->add()) {
-                            $manufacturerId = $manufacturer->id;
+                        $man = new \Manufacturer();
+                        $man->name = $manufacturerName;
+                        $man->active = 1;
+                        if ($man->add()) {
+                            $manufacturerId = (int)$man->id;
                             $this->errors[] = "✓ Fabricante creado: $manufacturerName";
                         }
                     } else {
                         $this->errors[] = "✓ Fabricante existente: $manufacturerName";
                     }
-                    
                     if ($manufacturerId) {
                         $product->id_manufacturer = $manufacturerId;
                         $product->save();
                     }
                 }
             } catch (\Exception $e) {
-                $warnings[] = "Fabricante: " . $e->getMessage();
+                $warnings[] = "Fabricante: ".$e->getMessage();
             }
 
-            // PASO 7: Actualizar stock
+            // [7] Stock
             $this->errors[] = "[7/9] Actualizando stock...";
             try {
                 $quantity = (int)($remoteProduct['quantity'] ?? 0);
+                if (isset($remoteProduct['stock_availables'][0]['quantity'])) {
+                    $q2 = (int)$remoteProduct['stock_availables'][0]['quantity'];
+                    if ($q2 !== 0) {
+                        $this->errors[] = "✓ Stock remoto (stock_availables): $q2";
+                        $quantity = $q2;
+                    } else {
+                        $this->errors[] = "✓ Stock remoto (quantity): $quantity";
+                    }
+                } else {
+                    $this->errors[] = "✓ Stock remoto (quantity): $quantity";
+                }
                 \StockAvailable::setQuantity($product->id, 0, $quantity);
-                $this->errors[] = "✓ Stock: $quantity unidades";
+                $this->errors[] = "✓ Stock aplicado: $quantity unidades";
             } catch (\Exception $e) {
-                $warnings[] = "Stock: " . $e->getMessage();
+                $warnings[] = "Stock: ".$e->getMessage();
             }
 
-            // 8. Importar imágenes (activar debug)
+            // [8] Imágenes (cover único + miniaturas + associateTo)
             $this->errors[] = "[8/9] Importando imágenes...";
             try {
-                // Activar debug para ver qué pasa con las imágenes
                 $this->apiService->setDebug(true);
                 $imageCount = $this->importImagesSimple($product, $remoteProduct);
                 $this->apiService->setDebug(false);
                 $this->errors[] = "✓ Imágenes: $imageCount importadas";
             } catch (\Exception $e) {
                 $this->apiService->setDebug(false);
-                $warnings[] = "Imágenes: " . $e->getMessage();
-                $this->errors[] = "ERROR en imágenes: " . $e->getMessage();
+                $warnings[] = "Imágenes: ".$e->getMessage();
+                $this->errors[] = "ERROR en imágenes: ".$e->getMessage();
             }
 
-            // PASO 9: Importar características
+            // [9] Características
             $this->errors[] = "[9/9] Importando características...";
             try {
                 $featureCount = $this->importFeaturesOptimized($product, $remoteProduct);
                 $this->errors[] = "  ✓ Características: $featureCount importadas/asignadas";
             } catch (\Exception $e) {
-                $warnings[] = "Características: " . $e->getMessage();
-                $this->errors[] = "  ERROR en características: " . $e->getMessage();
+                $warnings[] = "Características: ".$e->getMessage();
+                $this->errors[] = "  ERROR en características: ".$e->getMessage();
             }
 
             $this->errors[] = "=== ✅ Importación completada exitosamente ===";
-
             $message = "Producto '{$productName}' importado (ID: {$product->id})";
-            if (!empty($warnings)) {
-                $message .= " [" . count($warnings) . " advertencias]";
-            }
+            if (!empty($warnings)) { $message .= " [".count($warnings)." advertencias]"; }
 
             return [
                 'success' => true,
@@ -214,7 +267,6 @@ class ProductImporterService
         } catch (\Exception $e) {
             $this->errors[] = "=== ✗ ERROR FATAL ===";
             $this->errors[] = $e->getMessage();
-            
             return [
                 'success' => false,
                 'message' => $e->getMessage(),
@@ -223,573 +275,307 @@ class ProductImporterService
                 'file' => basename($e->getFile())
             ];
         } finally {
-            // Guardar logs en archivo para debugging
-            $logFile = _PS_MODULE_DIR_ . 'sync_ps_to_ps_importer/logs/import_log_' . date('Y-m-d') . '.txt';
-            $logDir = dirname($logFile);
-            if (!file_exists($logDir)) {
-                @mkdir($logDir, 0777, true);
-            }
-            $logContent = "\n=== " . date('H:i:s') . " - Producto $remoteProductId ===\n";
-            $logContent .= implode("\n", $this->errors) . "\n";
+            $logFile = _PS_MODULE_DIR_.'sync_ps_to_ps_importer/logs/import_log_'.date('Y-m-d').'.txt';
+            $logDir  = dirname($logFile);
+            if (!file_exists($logDir)) { @mkdir($logDir, 0777, true); }
+            $logContent  = "\n=== ".date('H:i:s')." - Producto $remoteProductId ===\n";
+            $logContent .= implode("\n", $this->errors)."\n";
             @file_put_contents($logFile, $logContent, FILE_APPEND);
         }
     }
 
-    /**
-     * Importar imágenes (versión simplificada)
-     */
     private function importImagesSimple($product, $remoteProduct)
     {
         $imported = 0;
-        
-        try {
-            // Obtener IDs de imágenes desde associations
-            $imageIds = [];
-            if (isset($remoteProduct['associations']['images']) && is_array($remoteProduct['associations']['images'])) {
-                foreach ($remoteProduct['associations']['images'] as $img) {
-                    $imageIds[] = $img['id'] ?? null;
-                }
-                $imageIds = array_filter($imageIds);
-            }
-            
-            if (empty($imageIds)) {
-                $this->errors[] = "  No se encontraron imágenes en el producto remoto";
-                return 0;
-            }
-            
-            $this->errors[] = "  Encontradas " . count($imageIds) . " imágenes: " . implode(', ', $imageIds);
-            
-            $isFirstImage = true;
-            
-            foreach ($imageIds as $imageId) {
-                try {
-                    // Descargar imagen desde la API (usar ID del producto REMOTO)
-                    $remoteProductId = $remoteProduct['id'] ?? 0;
-                    $this->errors[] = "  Intentando descargar imagen $imageId del producto remoto $remoteProductId...";
-                    
-                    $imageData = $this->apiService->downloadImage($remoteProductId, $imageId);
-                    
-                    $imageSize = $imageData ? strlen($imageData) : 0;
-                    $this->errors[] = "  Respuesta recibida: $imageSize bytes";
-                    
-                    if (!$imageData || $imageSize < 100) {
-                        $this->errors[] = "  ✗ Imagen $imageId: vacía o corrupta ($imageSize bytes)";
-                        $this->errors[] = "  URL: " . $this->apiService->getApiUrl() . "/api/images/products/$remoteProductId/$imageId";
-                        $this->errors[] = "  POSIBLE CAUSA: La API Key no tiene permisos para imágenes o el webservice no permite descargar imágenes.";
-                        $this->errors[] = "  SOLUCIÓN: Verifica en newgoparket.com → Configuración Avanzada → Webservice → que la API Key tenga permisos GET en 'images'";
-                        continue;
-                    }
-                    
-                    $this->errors[] = "  ✓ Imagen $imageId descargada correctamente ($imageSize bytes)";
-                    
-                    // Crear objeto Image de PrestaShop
-                    $image = new \Image();
-                    $image->id_product = $product->id;
-                    $image->position = \Image::getHighestPosition($product->id) + 1;
-                    $image->cover = $isFirstImage;
-                    
-                    if (!$image->add()) {
-                        $this->errors[] = "  Imagen $imageId: error al crear registro";
-                        continue;
-                    }
-                    
-                    $this->errors[] = "  Registro de imagen creado (ID local: {$image->id})";
-                    
-                    // Método 1: Guardar imagen directamente en el sistema de archivos
-                    $path = $image->getPathForCreation();
-                    
-                    // Crear directorio si no existe
-                    if (!file_exists(dirname($path))) {
-                        @mkdir(dirname($path), 0777, true);
-                    }
-                    
-                    // Guardar imagen en diferentes tamaños
-                    $success = false;
-                    if (file_put_contents($path . '.jpg', $imageData)) {
-                        $this->errors[] = "  Imagen guardada en: " . $path . '.jpg';
-                        
-                        // Generar miniaturas
-                        try {
-                            $imagesTypes = \ImageType::getImagesTypes('products');
-                            foreach ($imagesTypes as $imageType) {
-                                \ImageManager::resize(
-                                    $path . '.jpg',
-                                    $path . '-' . stripslashes($imageType['name']) . '.jpg',
-                                    $imageType['width'],
-                                    $imageType['height']
-                                );
-                            }
-                            $success = true;
-                            $imported++;
-                            $isFirstImage = false;
-                            $this->errors[] = "  ✓ Imagen $imageId importada con miniaturas";
-                        } catch (\Exception $e) {
-                            $this->errors[] = "  Advertencia generando miniaturas: " . $e->getMessage();
-                            // Aunque falle miniaturas, si se guardó la imagen principal, es un éxito
-                            $imported++;
-                            $isFirstImage = false;
-                        }
-                    } else {
-                        $image->delete();
-                        $this->errors[] = "  Imagen $imageId: error al guardar archivo físico";
-                    }
-                    
-                } catch (\Exception $e) {
-                    $this->errors[] = "  Imagen $imageId error: " . $e->getMessage();
-                    continue;
-                }
-            }
-            
-            return $imported;
-            
-        } catch (\Exception $e) {
-            throw new \Exception("Error general en imágenes: " . $e->getMessage());
-        }
-    }
 
-    /**
-     * Importar características (CREAR si no existen)
-     */
-    private function importFeaturesSimple($product, $remoteProduct)
-    {
-        $imported = 0;
-        
-        try {
-            // Obtener características desde associations
-            if (!isset($remoteProduct['associations']['product_features']) || !is_array($remoteProduct['associations']['product_features'])) {
-                $this->errors[] = "  No hay características en el producto remoto";
-                return 0;
+        $imageIds = [];
+        if (isset($remoteProduct['associations']['images']) && is_array($remoteProduct['associations']['images'])) {
+            foreach ($remoteProduct['associations']['images'] as $img) {
+                $imageIds[] = $img['id'] ?? null;
             }
-            
-            $features = $remoteProduct['associations']['product_features'];
-            $this->errors[] = "  Encontradas " . count($features) . " características remotas";
-            
-            // Eliminar características existentes del producto
-            \Db::getInstance()->delete('feature_product', '`id_product` = ' . (int)$product->id);
-            
-            foreach ($features as $featureData) {
-                try {
-                    $remoteFeatureId = (int)($featureData['id'] ?? 0);
-                    $remoteFeatureValueId = (int)($featureData['id_feature_value'] ?? 0);
-                    
-                    if (!$remoteFeatureId || !$remoteFeatureValueId) {
-                        continue;
-                    }
-                    
-                    // Obtener datos completos de la característica desde la API remota
-                    $this->errors[] = "  Procesando característica $remoteFeatureId...";
-                    
-                    $remoteFeature = $this->apiService->getFeature($remoteFeatureId);
-                    $remoteFeatureValue = $this->apiService->getFeatureValue($remoteFeatureValueId);
-                    
-                    if (!$remoteFeature || !$remoteFeatureValue) {
-                        $this->errors[] = "    No se pudo obtener datos de característica/valor, omitida";
-                        continue;
-                    }
-                    
-                    $featureName = is_array($remoteFeature['name'] ?? null)
-                        ? ($remoteFeature['name'][1] ?? reset($remoteFeature['name']))
-                        : ($remoteFeature['name'] ?? '');
-                    
-                    $featureValueName = is_array($remoteFeatureValue['value'] ?? null)
-                        ? ($remoteFeatureValue['value'][1] ?? reset($remoteFeatureValue['value']))
-                        : ($remoteFeatureValue['value'] ?? '');
-                    
-                    // Buscar o crear la característica localmente
-                    $localFeatureId = $this->findOrCreateFeature($featureName);
-                    
-                    // Buscar o crear el valor de característica localmente
-                    $localFeatureValueId = $this->findOrCreateFeatureValue($localFeatureId, $featureValueName);
-                    
-                    if ($localFeatureId && $localFeatureValueId) {
-                        // Asignar característica al producto
-                        \Db::getInstance()->insert('feature_product', [
-                            'id_feature' => $localFeatureId,
-                            'id_product' => (int)$product->id,
-                            'id_feature_value' => $localFeatureValueId
-                        ]);
-                        $imported++;
-                        $this->errors[] = "    ✓ $featureName: $featureValueName";
-                    }
-                    
-                } catch (\Exception $e) {
-                    $this->errors[] = "    Error: " . $e->getMessage();
-                    continue;
-                }
-            }
-            
-            return $imported;
-            
-        } catch (\Exception $e) {
-            throw new \Exception("Error general en características: " . $e->getMessage());
+            $imageIds = array_filter($imageIds);
         }
-    }
-
-    /**
-     * Encontrar o crear característica por nombre
-     */
-    private function findOrCreateFeature($featureName)
-    {
-        if (empty($featureName)) {
+        if (empty($imageIds)) {
+            $this->errors[] = "  No se encontraron imágenes en el producto remoto";
             return 0;
         }
-        
-        // Buscar por nombre
-        $sql = 'SELECT f.id_feature FROM `' . _DB_PREFIX_ . 'feature` f
-                INNER JOIN `' . _DB_PREFIX_ . 'feature_lang` fl ON (f.id_feature = fl.id_feature)
-                WHERE fl.name = "' . pSQL($featureName) . '" AND fl.id_lang = 1
-                LIMIT 1';
-        $featureId = (int)\Db::getInstance()->getValue($sql);
-        
-        if ($featureId) {
-            return $featureId;
+        $this->errors[] = "  Encontradas ".count($imageIds)." imágenes: ".implode(', ', $imageIds);
+
+        $hasCover = false;
+        $coverInfo = \Image::getCover((int)$product->id);
+        if (is_array($coverInfo) && !empty($coverInfo['id_image'])) { $hasCover = true; }
+
+        foreach ($imageIds as $imageId) {
+            try {
+                $remoteProductId = (int)($remoteProduct['id'] ?? 0);
+                $this->errors[] = "  Intentando descargar imagen $imageId del producto remoto $remoteProductId...";
+                $imageData = $this->apiService->downloadImage($remoteProductId, $imageId);
+                $size = $imageData ? strlen($imageData) : 0;
+                $this->errors[] = "  Respuesta recibida: $size bytes";
+                if (!$imageData || $size < 100) {
+                    $this->errors[] = "  ✗ Imagen $imageId: vacía o corrupta ($size bytes)";
+                    $this->errors[] = "  URL: ".$this->apiService->getApiUrl()."/api/images/products/$remoteProductId/$imageId";
+                    continue;
+                }
+
+                $image = new \Image();
+                $image->id_product = (int)$product->id;
+                $image->cover      = $hasCover ? 0 : 1;
+                $image->position   = (int)\Image::getHighestPosition($product->id) + 1;
+
+                if (!$image->add()) {
+                    $this->errors[] = "  Imagen $imageId: error al crear registro";
+                    continue;
+                }
+                if (!$hasCover && (int)$image->cover === 1) { $hasCover = true; }
+
+                $path = $image->getPathForCreation();
+                if (!file_exists(dirname($path))) { @mkdir(dirname($path), 0777, true); }
+
+                if (!file_put_contents($path.'.jpg', $imageData)) {
+                    $image->delete();
+                    $this->errors[] = "  Imagen $imageId: error al guardar archivo físico";
+                    continue;
+                }
+
+                try {
+                    $types = \ImageType::getImagesTypes('products');
+                    foreach ($types as $t) {
+                        \ImageManager::resize(
+                            $path.'.jpg',
+                            $path.'-'.stripslashes($t['name']).'.jpg',
+                            (int)$t['width'],
+                            (int)$t['height']
+                        );
+                    }
+                } catch (\Exception $e) {
+                    $this->errors[] = "  Advertencia miniaturas: ".$e->getMessage();
+                }
+
+                if (method_exists($image, 'associateTo')) {
+                    $image->associateTo([(int)\Context::getContext()->shop->id]);
+                }
+
+                $imported++;
+                $this->errors[] = "  ✓ Imagen $imageId importada (id local {$image->id})";
+            } catch (\Exception $e) {
+                $this->errors[] = "  Imagen $imageId error: ".$e->getMessage();
+            }
         }
-        
-        // Crear nueva característica
-        $feature = new \Feature();
-        
-        $languages = \Language::getLanguages(false);
-        foreach ($languages as $lang) {
-            $feature->name[$lang['id_lang']] = $featureName;
+
+        if (!$hasCover) {
+            $ids = \Image::getImages((int)\Context::getContext()->language->id, (int)$product->id);
+            if (!empty($ids)) {
+                $first = new \Image((int)$ids[0]['id_image']);
+                $first->cover = 1;
+                $first->update();
+                $this->errors[] = "  ✓ Se ha fijado cover en la primera imagen (id {$first->id})";
+            }
         }
-        
-        if ($feature->add()) {
-            $this->errors[] = "    ✓ Característica creada: $featureName (ID: {$feature->id})";
-            return $feature->id;
-        }
-        
-        return 0;
+
+        return $imported;
     }
 
-    /**
-     * Encontrar o crear valor de característica
-     */
-    private function findOrCreateFeatureValue($featureId, $valueName)
-    {
-        if (empty($featureId) || empty($valueName)) {
-            return 0;
-        }
-        
-        // Buscar por nombre y feature
-        $sql = 'SELECT id_feature_value FROM `' . _DB_PREFIX_ . 'feature_value`
-                WHERE id_feature = ' . (int)$featureId . '
-                AND value = "' . pSQL($valueName) . '"
-                LIMIT 1';
-        $valueId = (int)\Db::getInstance()->getValue($sql);
-        
-        if ($valueId) {
-            return $valueId;
-        }
-        
-        // Crear nuevo valor
-        $featureValue = new \FeatureValue();
-        $featureValue->id_feature = $featureId;
-        $featureValue->custom = 0;
-        
-        $languages = \Language::getLanguages(false);
-        foreach ($languages as $lang) {
-            $featureValue->value[$lang['id_lang']] = $valueName;
-        }
-        
-        if ($featureValue->add()) {
-            $this->errors[] = "    ✓ Valor creado: $valueName (ID: {$featureValue->id})";
-            return $featureValue->id;
-        }
-        
-        return 0;
-    }
-
-    /**
-     * Importar múltiples productos
-     */
-    public function importMultipleProducts($productIds)
-    {
-        $results = [];
-        
-        foreach ($productIds as $productId) {
-            $results[$productId] = $this->importProduct($productId);
-        }
-        
-        return $results;
-    }
-
-    /**
-     * Importar características CREÁNDOLAS si no existen
-     */
     private function importFeaturesOptimized($product, $remoteProduct)
     {
         $imported = 0;
-        $created = 0;
-        
-        try {
-            // Obtener características desde associations
-            if (!isset($remoteProduct['associations']['product_features']) || !is_array($remoteProduct['associations']['product_features'])) {
-                $this->errors[] = "  No hay características en el producto remoto";
-                return 0;
-            }
-            
-            $features = $remoteProduct['associations']['product_features'];
-            $this->errors[] = "  Encontradas " . count($features) . " características remotas";
-            
-            // Eliminar características existentes del producto
-            \Db::getInstance()->delete('feature_product', '`id_product` = ' . (int)$product->id);
-            
-            // Cache local de características
-            static $featureCache = [];
-            static $featureValueCache = [];
-            
-            foreach ($features as $featureData) {
-                try {
-                    $remoteFeatureId = (int)($featureData['id'] ?? 0);
-                    $remoteFeatureValueId = (int)($featureData['id_feature_value'] ?? 0);
-                    
-                    if (!$remoteFeatureId || !$remoteFeatureValueId) {
-                        continue;
-                    }
-                    
-                    // PASO 1: Obtener datos de la característica remota
-                    $remoteFeature = isset($featureCache[$remoteFeatureId]) 
-                        ? $featureCache[$remoteFeatureId]
-                        : $this->apiService->getFeature($remoteFeatureId);
-                    
-                    if (!$remoteFeature) {
-                        $this->errors[] = "  ⚠ No se pudo obtener característica $remoteFeatureId desde API";
-                        continue;
-                    }
-                    
-                    $featureCache[$remoteFeatureId] = $remoteFeature;
-                    
-                    $featureName = is_array($remoteFeature['name'] ?? null)
-                        ? ($remoteFeature['name'][1] ?? reset($remoteFeature['name']))
-                        : ($remoteFeature['name'] ?? '');
-                    
-                    // PASO 2: Buscar o crear la característica localmente
-                    $localFeatureId = $this->findOrCreateFeatureByName($featureName);
-                    
-                    if (!$localFeatureId) {
-                        $this->errors[] = "  ✗ No se pudo crear/encontrar característica '$featureName'";
-                        continue;
-                    }
-                    
-                    // PASO 3: Obtener datos del valor de característica remoto
-                    $remoteFeatureValue = isset($featureValueCache[$remoteFeatureValueId])
-                        ? $featureValueCache[$remoteFeatureValueId]
-                        : $this->apiService->getFeatureValue($remoteFeatureValueId);
-                    
-                    if (!$remoteFeatureValue) {
-                        $this->errors[] = "  ⚠ No se pudo obtener valor $remoteFeatureValueId desde API";
-                        continue;
-                    }
-                    
-                    $featureValueCache[$remoteFeatureValueId] = $remoteFeatureValue;
-                    
-                    $valueName = is_array($remoteFeatureValue['value'] ?? null)
-                        ? ($remoteFeatureValue['value'][1] ?? reset($remoteFeatureValue['value']))
-                        : ($remoteFeatureValue['value'] ?? '');
-                    
-                    // PASO 4: Buscar o crear el valor de característica localmente
-                    $localFeatureValueId = $this->findOrCreateFeatureValueByName($localFeatureId, $valueName);
-                    
-                    if (!$localFeatureValueId) {
-                        $this->errors[] = "  ✗ No se pudo crear/encontrar valor '$valueName'";
-                        continue;
-                    }
-                    
-                    // PASO 5: Asignar característica al producto
-                    \Db::getInstance()->insert('feature_product', [
-                        'id_feature' => $localFeatureId,
-                        'id_product' => (int)$product->id,
-                        'id_feature_value' => $localFeatureValueId
-                    ], false, true, \Db::INSERT_IGNORE);
-                    
-                    $imported++;
-                    $this->errors[] = "  ✓ '$featureName' = '$valueName' (Feature: $localFeatureId, Value: $localFeatureValueId)";
-                    
-                } catch (\Exception $e) {
-                    $this->errors[] = "  Error en característica: " . $e->getMessage();
-                    continue;
-                }
-            }
-            
-            $this->errors[] = "  Total: $imported características asignadas";
-            return $imported;
-            
-        } catch (\Exception $e) {
-            throw new \Exception("Error general en características: " . $e->getMessage());
+        if (!isset($remoteProduct['associations']['product_features']) || !is_array($remoteProduct['associations']['product_features'])) {
+            $this->errors[] = "  No hay características en el producto remoto";
+            return 0;
         }
+
+        $features = $remoteProduct['associations']['product_features'];
+        $this->errors[] = "  Encontradas ".count($features)." características remotas";
+
+        \Db::getInstance()->delete('feature_product', '`id_product`='.(int)$product->id);
+
+        static $featureCache = [];
+        static $featureValueCache = [];
+
+        foreach ($features as $row) {
+            try {
+                $remoteFeatureId = (int)($row['id'] ?? 0);
+                $remoteValueId   = (int)($row['id_feature_value'] ?? 0);
+                if (!$remoteFeatureId || !$remoteValueId) { continue; }
+
+                $remoteFeature = $featureCache[$remoteFeatureId] ?? $this->apiService->getFeature($remoteFeatureId);
+                if (!$remoteFeature) { $this->errors[] = "  ⚠ No se pudo obtener característica $remoteFeatureId"; continue; }
+                $featureCache[$remoteFeatureId] = $remoteFeature;
+
+                $featureName = is_array($remoteFeature['name'] ?? null)
+                    ? ($remoteFeature['name'][1] ?? reset($remoteFeature['name']))
+                    : ($remoteFeature['name'] ?? '');
+
+                $localFeatureId = $this->findOrCreateFeatureByName($featureName);
+                if (!$localFeatureId) { $this->errors[] = "  ✗ No se pudo crear/encontrar característica '$featureName'"; continue; }
+
+                $remoteValue = $featureValueCache[$remoteValueId] ?? $this->apiService->getFeatureValue($remoteValueId);
+                if (!$remoteValue) { $this->errors[] = "  ⚠ No se pudo obtener valor $remoteValueId"; continue; }
+                $featureValueCache[$remoteValueId] = $remoteValue;
+
+                $valueName = is_array($remoteValue['value'] ?? null)
+                    ? ($remoteValue['value'][1] ?? reset($remoteValue['value']))
+                    : ($remoteValue['value'] ?? '');
+
+                $localValueId = $this->findOrCreateFeatureValueByName($localFeatureId, $valueName);
+                if (!$localValueId) { $this->errors[] = "  ✗ No se pudo crear/encontrar valor '$valueName'"; continue; }
+
+                \Db::getInstance()->insert('feature_product', [
+                    'id_feature'       => (int)$localFeatureId,
+                    'id_product'       => (int)$product->id,
+                    'id_feature_value' => (int)$localValueId,
+                ], false, true, \Db::INSERT_IGNORE);
+
+                $imported++;
+                $this->errors[] = "  ✓ '$featureName' = '$valueName' (Feature: $localFeatureId, Value: $localValueId)";
+            } catch (\Exception $e) {
+                $this->errors[] = "  Error en característica: ".$e->getMessage();
+            }
+        }
+
+        $this->errors[] = "  Total: $imported características asignadas";
+        return $imported;
     }
-    
-    /**
-     * Buscar o crear característica por nombre
-     */
+
     private function findOrCreateFeatureByName($featureName)
     {
-        if (empty($featureName)) {
-            return 0;
-        }
-        
-        // Cache
-        static $cache = [];
-        $cacheKey = md5($featureName);
-        if (isset($cache[$cacheKey])) {
-            return $cache[$cacheKey];
-        }
-        
-        // Buscar por nombre
-        $db = \Db::getInstance();
-        $tableFeature = _DB_PREFIX_ . 'feature';
-        $tableFeatureLang = _DB_PREFIX_ . 'feature_lang';
-        $sql = "SELECT f.id_feature FROM {$tableFeature} f INNER JOIN {$tableFeatureLang} fl ON f.id_feature = fl.id_feature WHERE fl.name = '" . pSQL($featureName) . "' AND fl.id_lang = 1 LIMIT 1";
-        $featureId = (int)$db->getValue($sql);
-        
-        if ($featureId) {
-            $cache[$cacheKey] = $featureId;
-            return $featureId;
-        }
-        
-        // Crear nueva característica
+        $featureName = trim((string)$featureName);
+        if ($featureName === '') { return 0; }
+        $name  = pSQL($featureName, true);
+        $idLang = (int)\Configuration::get('PS_LANG_DEFAULT', null, null, null, 1);
+
+        $sql = 'SELECT `fl`.`id_feature` FROM `'._DB_PREFIX_.'feature_lang` fl
+                WHERE fl.`id_lang`='.$idLang.' AND fl.`name`=\''.$name.'\'';
+        $featureId = (int)\Db::getInstance()->getValue($sql);
+        if ($featureId) { return $featureId; }
+
         $feature = new \Feature();
-        $languages = \Language::getLanguages(false);
-        foreach ($languages as $lang) {
-            $feature->name[$lang['id_lang']] = $featureName;
+        foreach (\Language::getLanguages(false) as $lang) {
+            $feature->name[(int)$lang['id_lang']] = $featureName;
         }
-        
         if ($feature->add()) {
             $this->errors[] = "    + Característica CREADA: '$featureName' (ID: {$feature->id})";
-            $cache[$cacheKey] = $feature->id;
-            return $feature->id;
+            return (int)$feature->id;
         }
-        
-        return 0;
-    }
-    
-    /**
-     * Buscar o crear valor de característica por nombre
-     */
-    private function findOrCreateFeatureValueByName($featureId, $valueName)
-    {
-        if (empty($featureId) || empty($valueName)) {
-            return 0;
-        }
-        
-        // Cache
-        static $cache = [];
-        $cacheKey = $featureId . '_' . md5($valueName);
-        if (isset($cache[$cacheKey])) {
-            return $cache[$cacheKey];
-        }
-        
-        // Buscar por nombre y característica
-        $db = \Db::getInstance();
-        $tableFeatureValue = _DB_PREFIX_ . 'feature_value';
-        $sql = "SELECT id_feature_value FROM {$tableFeatureValue} WHERE id_feature = " . (int)$featureId . " AND value = '" . pSQL($valueName) . "' LIMIT 1";
-        $valueId = (int)$db->getValue($sql);
-        
-        if ($valueId) {
-            $cache[$cacheKey] = $valueId;
-            return $valueId;
-        }
-        
-        // Crear nuevo valor
-        $featureValue = new \FeatureValue();
-        $featureValue->id_feature = $featureId;
-        $featureValue->custom = 0;
-        
-        $languages = \Language::getLanguages(false);
-        foreach ($languages as $lang) {
-            $featureValue->value[$lang['id_lang']] = $valueName;
-        }
-        
-        if ($featureValue->add()) {
-            $this->errors[] = "    + Valor CREADO: '$valueName' (ID: {$featureValue->id})";
-            $cache[$cacheKey] = $featureValue->id;
-            return $featureValue->id;
-        }
-        
         return 0;
     }
 
-    /**
-     * Crear categoría con toda su jerarquía (recursivo)
-     */
+    private function findOrCreateFeatureValueByName($featureId, $valueName)
+    {
+        $featureId = (int)$featureId;
+        $valueName = trim((string)$valueName);
+        if ($featureId <= 0 || $valueName === '') { return 0; }
+
+        $val   = pSQL($valueName, true);
+        $idLang = (int)\Configuration::get('PS_LANG_DEFAULT', null, null, null, 1);
+
+        $sql = 'SELECT fvl.`id_feature_value`
+                FROM `'._DB_PREFIX_.'feature_value` fv
+                INNER JOIN `'._DB_PREFIX_.'feature_value_lang` fvl
+                  ON (fvl.`id_feature_value`=fv.`id_feature_value`)
+                WHERE fv.`id_feature`='.$featureId.' AND fvl.`id_lang`='.$idLang.' AND fvl.`value`=\''.$val.'\'';
+        $valueId = (int)\Db::getInstance()->getValue($sql);
+        if ($valueId) { return $valueId; }
+
+        $featureValue = new \FeatureValue();
+        $featureValue->id_feature = $featureId;
+        $featureValue->custom = 0;
+        foreach (\Language::getLanguages(false) as $lang) {
+            $featureValue->value[(int)$lang['id_lang']] = $valueName;
+        }
+        if ($featureValue->add()) {
+            $this->errors[] = "    + Valor CREADO: '$valueName' (ID: {$featureValue->id})";
+            return (int)$featureValue->id;
+        }
+        return 0;
+    }
+
     private function createCategoryWithHierarchy($remoteCategoryId)
     {
-        // Cache de categorías
         static $categoryCache = [];
-        
         if (isset($categoryCache[$remoteCategoryId])) {
             return $categoryCache[$remoteCategoryId];
         }
-        
-        if (empty($remoteCategoryId) || $remoteCategoryId <= 2) {
-            return 2; // Home
-        }
-        
+        if (empty($remoteCategoryId) || $remoteCategoryId <= 2) { return 2; }
+
         try {
-            // Obtener datos de la categoría remota
             $remoteCategory = $this->apiService->getCategory($remoteCategoryId);
             if (!$remoteCategory) {
                 $this->errors[] = "    Categoría remota $remoteCategoryId no encontrada";
                 return 2;
             }
-            
-            $categoryName = is_array($remoteCategory['name'] ?? null) 
+            $categoryName = is_array($remoteCategory['name'] ?? null)
                 ? ($remoteCategory['name'][1] ?? reset($remoteCategory['name']))
-                : ($remoteCategory['name'] ?? 'Categoría ' . $remoteCategoryId);
-            
-            // Buscar si ya existe localmente por nombre
-            $db = \Db::getInstance();
-            $tableCat = _DB_PREFIX_ . 'category';
-            $tableCatLang = _DB_PREFIX_ . 'category_lang';
-            $sql = "SELECT c.id_category FROM {$tableCat} c INNER JOIN {$tableCatLang} cl ON c.id_category = cl.id_category WHERE cl.name = '" . pSQL($categoryName) . "' AND cl.id_lang = 1 LIMIT 1";
-            $localCategoryId = (int)$db->getValue($sql);
-            
+                : ($remoteCategory['name'] ?? ('Categoría '.$remoteCategoryId));
+
+            $name  = pSQL($categoryName, true);
+            $idLang = (int)\Configuration::get('PS_LANG_DEFAULT', null, null, null, 1);
+
+            $sql = 'SELECT `id_category` FROM `'._DB_PREFIX_.'category_lang`
+                    WHERE `id_lang`='.$idLang.' AND `name`=\''.$name.'\'';
+            $localCategoryId = (int)\Db::getInstance()->getValue($sql);
             if ($localCategoryId) {
                 $this->errors[] = "    Cat '$categoryName' ya existe (ID: $localCategoryId)";
                 $categoryCache[$remoteCategoryId] = $localCategoryId;
                 return $localCategoryId;
             }
-            
-            // Crear el padre primero (recursivo)
+
             $remoteParentId = (int)($remoteCategory['id_parent'] ?? 2);
-            $localParentId = 2;
-            
+            $localParentId  = 2;
             if ($remoteParentId > 2) {
                 $this->errors[] = "    Creando padre (ID remoto: $remoteParentId) primero...";
                 $localParentId = $this->createCategoryWithHierarchy($remoteParentId);
             }
-            
-            // Crear la categoría
+
             $category = new \Category();
             $category->id_parent = $localParentId;
             $category->active = 1;
             $category->is_root_category = false;
-            
-            $languages = \Language::getLanguages(false);
-            foreach ($languages as $lang) {
-                $category->name[$lang['id_lang']] = $categoryName;
-                $category->link_rewrite[$lang['id_lang']] = \Tools::str2url($categoryName);
-                $category->description[$lang['id_lang']] = '';
+            foreach (\Language::getLanguages(false) as $lang) {
+                $id = (int)$lang['id_lang'];
+                $category->name[$id] = $categoryName;
+                $category->link_rewrite[$id] = \Tools::str2url($categoryName);
+                $category->description[$id] = '';
             }
-            
+
             if ($category->add()) {
                 $this->errors[] = "    ✓ CREADA: '$categoryName' (ID local: {$category->id}, Padre: $localParentId)";
-                $categoryCache[$remoteCategoryId] = $category->id;
-                return $category->id;
+                $categoryCache[$remoteCategoryId] = (int)$category->id;
+                return (int)$category->id;
             } else {
                 $this->errors[] = "    ✗ Error al crear '$categoryName'";
                 return 2;
             }
-            
         } catch (\Exception $e) {
-            $this->errors[] = "    Error en categoría $remoteCategoryId: " . $e->getMessage();
+            $this->errors[] = "    Error en categoría $remoteCategoryId: ".$e->getMessage();
             return 2;
         }
     }
 
-    /**
-     * Obtener errores
-     */
+    public function importMultipleProducts($productIds)
+    {
+        $results = [];
+        if (!is_array($productIds)) { $productIds = [$productIds]; }
+        foreach ($productIds as $id) {
+            $id = (int)$id;
+            if ($id <= 0) {
+                $results[$id] = ['success' => false, 'message' => 'ID de producto inválido'];
+                continue;
+            }
+            if (function_exists('set_time_limit')) { @set_time_limit(60); }
+            $results[$id] = $this->importProduct($id);
+        }
+        return $results;
+    }
+
+    private function getTaxRulesGroupIdByName($groupName)
+    {
+        $db = \Db::getInstance();
+        $groupName = pSQL($groupName, true);
+        $sql = 'SELECT `id_tax_rules_group` FROM `'._DB_PREFIX_.'tax_rules_group` WHERE `name`=\''.$groupName.'\'';
+        return (int)$db->getValue($sql);
+    }
+
     public function getErrors()
     {
         return $this->errors;
