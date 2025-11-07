@@ -47,8 +47,28 @@ class AdminImporterController extends AbstractController
                         $filters['search'] = $searchFilter;
                     }
 
+                    // Obtener productos y total para paginación
                     $products = $apiService->getProducts($limit, $offset, $filters);
                     $categories = $apiService->getCategories(50);
+                    $totalProducts = $apiService->getTotalProducts($filters);
+                    
+                    // Calcular información de paginación
+                    $currentPage = floor($offset / $limit) + 1;
+                    $totalPages = $totalProducts > 0 ? ceil($totalProducts / $limit) : 1;
+                    
+                    $pagination = [
+                        'current_page' => $currentPage,
+                        'total_pages' => $totalPages,
+                        'total_items' => $totalProducts,
+                        'limit' => $limit,
+                        'offset' => $offset,
+                        'showing_from' => $totalProducts > 0 ? $offset + 1 : 0,
+                        'showing_to' => min($offset + $limit, $totalProducts),
+                        'has_previous' => $offset > 0,
+                        'has_next' => ($offset + $limit) < $totalProducts,
+                        'previous_offset' => max(0, $offset - $limit),
+                        'next_offset' => $offset + $limit,
+                    ];
                 }
             } catch (\Throwable $e) {
                 $error = 'Error de conexión: ' . $e->getMessage();
@@ -67,6 +87,9 @@ class AdminImporterController extends AbstractController
             'connectionStatus' => $connectionStatus,
             'apiUrl' => $apiUrl,
             'hasConfig' => !empty($apiUrl) && !empty($apiKey),
+            'pagination' => $pagination ?? null,
+            'currentCategory' => $categoryFilter ?? '',
+            'currentSearch' => $searchFilter ?? '',
         ]);
     }
 

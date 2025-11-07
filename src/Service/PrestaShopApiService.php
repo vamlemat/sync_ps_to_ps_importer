@@ -203,6 +203,39 @@ class PrestaShopApiService
     }
 
     /**
+     * Obtener el total de productos (con filtros opcionales)
+     * Útil para calcular la paginación
+     */
+    public function getTotalProducts($filters = [])
+    {
+        try {
+            $params = [
+                'display' => '[id]', // Solo necesitamos los IDs para contar
+            ];
+
+            if (!empty($filters['id_category'])) {
+                $params['filter[id_category_default]'] = (int)$filters['id_category'];
+            }
+
+            if (!empty($filters['search'])) {
+                $params['filter[name]'] = '%' . $filters['search'] . '%';
+            }
+
+            $data = $this->makeRequest('products', $params);
+            
+            // Contar productos en la respuesta
+            if (isset($data['products']) && is_array($data['products'])) {
+                return count($data['products']);
+            }
+            
+            return 0;
+        } catch (\Exception $e) {
+            $this->log("Error obteniendo total de productos: " . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /**
      * Obtener un producto completo por ID
      */
     public function getProduct($id)

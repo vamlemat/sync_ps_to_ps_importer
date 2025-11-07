@@ -42,7 +42,7 @@
         <form method="get" class="form-inline">
           <div class="form-group mr-3">
             <label for="search" class="mr-2">Buscar:</label>
-            <input type="text" class="form-control" id="search" name="search" placeholder="Nombre del producto">
+            <input type="text" class="form-control" id="search" name="search" placeholder="Nombre del producto" value="{{ currentSearch }}">
           </div>
           
           <div class="form-group mr-3">
@@ -51,7 +51,7 @@
               <option value="">Todas las categorías</option>
               {% for category in categories %}
                 {% set categoryName = category.name is iterable ? (category.name[1] ?? category.name|first) : category.name %}
-                <option value="{{ category.id }}">{{ categoryName }}</option>
+                <option value="{{ category.id }}" {% if currentCategory == category.id %}selected{% endif %}>{{ categoryName }}</option>
               {% endfor %}
             </select>
           </div>
@@ -59,6 +59,12 @@
           <button type="submit" class="btn btn-primary">
             <i class="material-icons">search</i> Buscar
           </button>
+          
+          {% if currentSearch or currentCategory %}
+          <a href="?" class="btn btn-secondary ml-2">
+            <i class="material-icons">clear</i> Limpiar filtros
+          </a>
+          {% endif %}
         </form>
       </div>
     </div>
@@ -87,6 +93,26 @@
           No se encontraron productos
         </p>
         {% else %}
+        
+        {# Información de paginación superior #}
+        {% if pagination %}
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div class="text-muted">
+            <i class="material-icons" style="vertical-align: middle; font-size: 18px;">info</i>
+            Mostrando <strong>{{ pagination.showing_from }}</strong> - <strong>{{ pagination.showing_to }}</strong> de <strong>{{ pagination.total_items }}</strong> productos
+          </div>
+          <div>
+            <label class="mb-0 mr-2">Productos por página:</label>
+            <select id="limitSelector" class="form-control form-control-sm d-inline-block" style="width: auto;">
+              <option value="10" {% if pagination.limit == 10 %}selected{% endif %}>10</option>
+              <option value="20" {% if pagination.limit == 20 %}selected{% endif %}>20</option>
+              <option value="50" {% if pagination.limit == 50 %}selected{% endif %}>50</option>
+              <option value="100" {% if pagination.limit == 100 %}selected{% endif %}>100</option>
+            </select>
+          </div>
+        </div>
+        {% endif %}
+        
         <div class="table-responsive">
           <table class="table table-hover">
             <thead>
@@ -144,6 +170,77 @@
             </tbody>
           </table>
         </div>
+        
+        {# Controles de paginación inferior #}
+        {% if pagination and pagination.total_pages > 1 %}
+        <div class="d-flex justify-content-center mt-4">
+          <nav aria-label="Paginación de productos">
+            <ul class="pagination">
+              {# Botón Anterior #}
+              <li class="page-item {% if not pagination.has_previous %}disabled{% endif %}">
+                {% if pagination.has_previous %}
+                  <a class="page-link" href="?offset={{ pagination.previous_offset }}&limit={{ pagination.limit }}{% if currentCategory %}&category={{ currentCategory }}{% endif %}{% if currentSearch %}&search={{ currentSearch }}{% endif %}" aria-label="Anterior">
+                    <span aria-hidden="true">&laquo;</span>
+                    <span class="sr-only">Anterior</span>
+                  </a>
+                {% else %}
+                  <span class="page-link">
+                    <span aria-hidden="true">&laquo;</span>
+                  </span>
+                {% endif %}
+              </li>
+
+              {# Números de página #}
+              {% set start_page = max(1, pagination.current_page - 2) %}
+              {% set end_page = min(pagination.total_pages, pagination.current_page + 2) %}
+              
+              {# Primera página si no está visible #}
+              {% if start_page > 1 %}
+                <li class="page-item">
+                  <a class="page-link" href="?offset=0&limit={{ pagination.limit }}{% if currentCategory %}&category={{ currentCategory }}{% endif %}{% if currentSearch %}&search={{ currentSearch }}{% endif %}">1</a>
+                </li>
+                {% if start_page > 2 %}
+                  <li class="page-item disabled"><span class="page-link">...</span></li>
+                {% endif %}
+              {% endif %}
+
+              {# Páginas visibles #}
+              {% for page in start_page..end_page %}
+                {% set page_offset = (page - 1) * pagination.limit %}
+                <li class="page-item {% if page == pagination.current_page %}active{% endif %}">
+                  <a class="page-link" href="?offset={{ page_offset }}&limit={{ pagination.limit }}{% if currentCategory %}&category={{ currentCategory }}{% endif %}{% if currentSearch %}&search={{ currentSearch }}{% endif %}">{{ page }}</a>
+                </li>
+              {% endfor %}
+
+              {# Última página si no está visible #}
+              {% if end_page < pagination.total_pages %}
+                {% if end_page < pagination.total_pages - 1 %}
+                  <li class="page-item disabled"><span class="page-link">...</span></li>
+                {% endif %}
+                <li class="page-item">
+                  {% set last_offset = (pagination.total_pages - 1) * pagination.limit %}
+                  <a class="page-link" href="?offset={{ last_offset }}&limit={{ pagination.limit }}{% if currentCategory %}&category={{ currentCategory }}{% endif %}{% if currentSearch %}&search={{ currentSearch }}{% endif %}">{{ pagination.total_pages }}</a>
+                </li>
+              {% endif %}
+
+              {# Botón Siguiente #}
+              <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                {% if pagination.has_next %}
+                  <a class="page-link" href="?offset={{ pagination.next_offset }}&limit={{ pagination.limit }}{% if currentCategory %}&category={{ currentCategory }}{% endif %}{% if currentSearch %}&search={{ currentSearch }}{% endif %}" aria-label="Siguiente">
+                    <span aria-hidden="true">&raquo;</span>
+                    <span class="sr-only">Siguiente</span>
+                  </a>
+                {% else %}
+                  <span class="page-link">
+                    <span aria-hidden="true">&raquo;</span>
+                  </span>
+                {% endif %}
+              </li>
+            </ul>
+          </nav>
+        </div>
+        {% endif %}
+        
         {% endif %}
       </div>
     </div>
@@ -180,6 +277,46 @@
 tbody tr:hover {
   background-color: #f8f9fa;
 }
+
+/* Estilos de paginación */
+.pagination {
+  margin-bottom: 0;
+}
+.pagination .page-link {
+  color: #6c757d;
+  border-color: #dee2e6;
+}
+.pagination .page-item.active .page-link {
+  background-color: #25b9d7;
+  border-color: #25b9d7;
+  color: white;
+}
+.pagination .page-link:hover {
+  background-color: #f8f9fa;
+  border-color: #dee2e6;
+  color: #495057;
+}
+.pagination .page-item.disabled .page-link {
+  color: #6c757d;
+  pointer-events: none;
+  cursor: not-allowed;
+  background-color: #fff;
+  border-color: #dee2e6;
+}
+
+/* Selector de límite */
+#limitSelector {
+  cursor: pointer;
+  transition: border-color 0.15s ease-in-out;
+}
+#limitSelector:hover {
+  border-color: #80bdff;
+}
+
+/* Información de paginación */
+.text-muted strong {
+  color: #495057;
+}
 </style>
 
 <script>
@@ -202,13 +339,27 @@ tbody tr:hover {
     const productCheckboxes = document.querySelectorAll('.product-checkbox');
     const importBtn = document.getElementById('importSelected');
     const importModalEl = document.getElementById('importModal');
+    const limitSelector = document.getElementById('limitSelector');
     
     console.log('Elementos encontrados:', {
       selectAll: !!selectAll,
       checkboxes: productCheckboxes.length,
       importBtn: !!importBtn,
-      modal: !!importModalEl
+      modal: !!importModalEl,
+      limitSelector: !!limitSelector
     });
+    
+    // Cambiar límite de productos por página
+    if (limitSelector) {
+      limitSelector.addEventListener('change', function() {
+        const newLimit = this.value;
+        const url = new URL(window.location.href);
+        url.searchParams.set('limit', newLimit);
+        url.searchParams.set('offset', '0'); // Volver a la primera página
+        console.log('Cambiando límite a:', newLimit);
+        window.location.href = url.toString();
+      });
+    }
     
     // Crear instancia del modal (con fallback si bootstrap no está disponible)
     let importModal = null;
