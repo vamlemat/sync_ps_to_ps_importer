@@ -30,7 +30,7 @@ class Sync_Ps_To_Ps_Importer extends Module
     {
         $this->name = 'sync_ps_to_ps_importer';
         $this->tab = 'migration_tools';
-        $this->version = '1.0.0';
+        $this->version = '1.1.0';
         $this->author = 'Atech';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = [
