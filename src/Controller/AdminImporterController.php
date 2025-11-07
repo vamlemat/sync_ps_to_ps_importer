@@ -75,6 +75,9 @@ class AdminImporterController extends AbstractController
             }
         }
 
+        // Obtener token de seguridad
+        $token = \Tools::getAdminTokenLite('AdminSyncPsToPsImporter');
+        
         return $this->render('@Modules/sync_ps_to_ps_importer/views/templates/admin/panel.html.twig', [
             'layoutTitle' => 'Sincronizador PS a PS',
             'requireBulkActions' => false,
@@ -90,6 +93,7 @@ class AdminImporterController extends AbstractController
             'pagination' => $pagination ?? null,
             'currentCategory' => $categoryFilter ?? '',
             'currentSearch' => $searchFilter ?? '',
+            'adminToken' => $token,
         ]);
     }
 
