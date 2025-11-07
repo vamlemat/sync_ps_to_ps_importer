@@ -7,6 +7,121 @@ y este proyecto adhiere a [Versionado Semántico](https://semver.org/lang/es/).
 
 ---
 
+## [1.2.0] - 2025-11-07
+
+### 🎉 Versión Mayor - Mejoras de UX y Gestión
+
+### Añadido
+- ✨ **Visualizador de logs integrado en la interfaz**
+  - Visor de logs en tiempo real dentro del panel de administración
+  - Lista de archivos de log con fecha y tamaño
+  - Visor de contenido con resaltado de sintaxis
+  - Estadísticas por log (total líneas, éxitos, errores, warnings)
+  - Botones para copiar contenido al portapapeles
+  - Descarga directa de archivos de log
+  - Limpieza manual de todos los logs
+  - Limpieza automática de logs >24 horas
+  - Nueva ruta: `/admin/sync-ps-to-ps/logs`
+  - Endpoint AJAX: `/admin/sync-ps-to-ps/clear-logs`
+  - CSS personalizado con tema oscuro para el visor
+  - JavaScript para cálculo de estadísticas en tiempo real
+
+- 🗂️ **Importación completa de categorías con SEO**
+  - Descripción de categoría (multiidioma)
+  - SEO metadata completa:
+    - `meta_title` - Título SEO
+    - `meta_description` - Descripción SEO
+    - `meta_keywords` - Palabras clave
+  - `link_rewrite` - URLs amigables (slug)
+  - Estado activo/inactivo de la categoría
+  - Importación de imagen destacada de categoría
+  - Generación automática de thumbnails de categoría
+  - Todos los tipos de imagen configurados en PrestaShop
+  - Nuevo método `downloadCategoryImage()` en `PrestaShopApiService`
+  - Nuevo método `importCategoryImage()` en `ProductImporterService`
+  - Manejo robusto de errores (no bloquea si falla imagen)
+
+- 📊 **Indicador visual de productos importados**
+  - Nueva columna "Importado" en la tabla de productos
+  - Badge verde ✅ "Sí" para productos ya importados en local
+  - Badge amarillo ➕ "Nuevo" para productos no importados
+  - Tooltip con ID local del producto importado
+  - Verificación automática por referencia en BD local
+  - Añade campos `is_imported` y `local_id` a cada producto
+  - **Filtros rápidos visuales**:
+    - Botón "Todos" - Muestra todos los productos
+    - Botón "Solo Nuevos" - Filtra solo no importados
+    - Botón "Solo Importados" - Filtra solo ya importados
+  - Filtrado en tiempo real con JavaScript (sin recargar)
+  - Botón activo resaltado con colores distintivos
+  - Estados visuales con iconos Material Icons
+  - Integración perfecta con selección de productos
+
+### Mejorado
+- 🔧 **Gestión de logs**
+  - Retención automática de logs a 24 horas
+  - Evita acumulación de archivos de log
+  - Liberación automática de espacio en disco
+  - Llamada a `cleanOldLogs()` en cada vista de logs
+
+- 🎨 **Interfaz más intuitiva**
+  - Saber de un vistazo qué productos están importados
+  - Evitar re-importación de productos existentes
+  - Filtros instantáneos sin pérdida de selección
+  - Mejor organización visual de la información
+
+- ⚡ **Performance**
+  - Consulta SQL eficiente por referencia
+  - Cache de resultados de verificación
+  - Filtrado del lado del cliente (JavaScript)
+  - Sin impacto en tiempo de carga
+
+### Técnico
+- 📝 Logs organizados por fecha (`logs/import_log_YYYY-MM-DD.txt`)
+- 🧹 Sistema de limpieza automática con `filemtime()` y `unlink()`
+- 🖼️ Uso de `_PS_CAT_IMG_DIR_` para imágenes de categoría
+- 🔍 Query SQL con `pSQL()` para seguridad
+- 🎭 Twig template nueva: `logs.html.twig`
+- 📐 Detección de badge con selectores CSS específicos
+- 🎨 Clases CSS: `.badge-success`, `.badge-warning`
+- 🔗 Ruptura de referencia con `unset($product)` post-loop
+
+### Archivos Modificados
+- `src/Controller/AdminImporterController.php` (+97 líneas)
+  - Nuevo método `logsAction()` - Vista de logs
+  - Nuevo método `clearLogsAction()` - Limpieza AJAX
+  - Nuevo método `cleanOldLogs()` - Retención 24h
+  - Verificación de productos importados en `indexAction()`
+- `src/Service/PrestaShopApiService.php` (+71 líneas)
+  - Nuevo método `downloadCategoryImage()`
+- `src/Service/ProductImporterService.php` (+94 líneas)
+  - Método `importCategoryImage()` - Descarga y redimensiona
+  - Mejoras en `createCategoryWithHierarchy()` - SEO completo
+- `views/templates/admin/panel.html.twig` (+113 líneas)
+  - Nueva columna "Importado"
+  - Badges con estados visuales
+  - Filtros rápidos con botones
+  - JavaScript para filtrado en tiempo real
+  - CSS para estados activos
+- `views/templates/admin/logs.html.twig` (nuevo archivo, +230 líneas)
+  - Interfaz completa de visualización de logs
+- `config/routes.yml` (+12 líneas)
+  - Ruta `admin_sync_ps_to_ps_importer_logs`
+  - Ruta `admin_sync_ps_to_ps_importer_clear_logs`
+
+**Total de líneas añadidas: +617 líneas**
+
+### Beneficios
+- 🎯 Mejor visibilidad del estado de importación
+- 🐛 Debugging más rápido con logs accesibles
+- 🧹 Gestión automática de espacio en disco
+- 🏎️ Importaciones más eficientes (evita duplicados)
+- 📊 Información SEO completa en categorías
+- 🖼️ Imágenes de categoría sincronizadas
+- 🎨 UX mejorada con filtros visuales
+
+---
+
 ## [1.1.0] - 2025-11-07
 
 ### 🎉 Versión Mayor - Funcionalidades Críticas
@@ -221,6 +336,7 @@ Este proyecto usa [Versionado Semántico](https://semver.org/lang/es/):
 
 ---
 
+[1.2.0]: https://github.com/vamlemat/sync_ps_to_ps_importer/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/vamlemat/sync_ps_to_ps_importer/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/vamlemat/sync_ps_to_ps_importer/releases/tag/v1.0.0
 [0.1.0]: https://github.com/vamlemat/sync_ps_to_ps_importer/releases/tag/v0.1.0
