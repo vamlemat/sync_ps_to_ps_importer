@@ -52,6 +52,25 @@ class AdminImporterController extends AbstractController
                     $categories = $apiService->getCategories(50);
                     $totalProducts = $apiService->getTotalProducts($filters);
                     
+                    // Verificar si cada producto ya está importado
+                    foreach ($products as &$product) {
+                        $reference = (string)($product['reference'] ?? '');
+                        $product['is_imported'] = false;
+                        $product['local_id'] = null;
+                        
+                        if ($reference !== '') {
+                            $sql = 'SELECT `id_product` FROM `'._DB_PREFIX_.'product` 
+                                    WHERE `reference`=\''.pSQL($reference, true).'\'';
+                            $localId = (int)\Db::getInstance()->getValue($sql);
+                            
+                            if ($localId > 0) {
+                                $product['is_imported'] = true;
+                                $product['local_id'] = $localId;
+                            }
+                        }
+                    }
+                    unset($product); // Romper referencia
+                    
                     // Calcular información de paginación
                     $currentPage = floor($offset / $limit) + 1;
                     $totalPages = $totalProducts > 0 ? ceil($totalProducts / $limit) : 1;
