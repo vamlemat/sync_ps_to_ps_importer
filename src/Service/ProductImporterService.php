@@ -23,7 +23,7 @@ class ProductImporterService
             $this->errors[] = "=== Iniciando importación del producto ID: $remoteProductId ===";
 
             // [1] Datos remotos
-            $this->errors[] = "[1/9] Obteniendo datos del producto remoto...";
+            $this->errors[] = "[1/10] Obteniendo datos del producto remoto...";
             $remoteProduct = $this->apiService->getProduct($remoteProductId);
             if (!$remoteProduct) {
                 throw new \Exception("No se pudo obtener el producto $remoteProductId desde la API");
@@ -34,7 +34,7 @@ class ProductImporterService
             $this->errors[] = "✓ Producto obtenido: $productName";
 
             // [2] ¿Existe por referencia?
-            $this->errors[] = "[2/9] Verificando si el producto ya existe...";
+            $this->errors[] = "[2/10] Verificando si el producto ya existe...";
             $reference = (string)($remoteProduct['reference'] ?? '');
             $localProductId = 0;
             $this->errors[] = "Referencia remota (raw): '" . $reference . "' (len=" . \Tools::strlen($reference) . ")";
@@ -50,7 +50,7 @@ class ProductImporterService
                 : "✓ Producto nuevo, creando...";
 
             // [3] Datos básicos
-            $this->errors[] = "[3/9] Asignando datos básicos...";
+            $this->errors[] = "[3/10] Asignando datos básicos...";
             $product->reference        = $reference;
             $product->ean13            = $remoteProduct['ean13'] ?? '';
             $product->upc              = $remoteProduct['upc'] ?? '';
@@ -146,14 +146,14 @@ class ProductImporterService
             $this->errors[] = "✓ Datos básicos asignados";
 
             // [4] Guardar
-            $this->errors[] = "[4/9] Guardando producto...";
+            $this->errors[] = "[4/10] Guardando producto...";
             if (!$product->save()) {
                 throw new \Exception("Error al guardar el producto en la base de datos");
             }
             $this->errors[] = "✓ Producto guardado (ID: {$product->id})";
 
             // [5] Categorías
-            $this->errors[] = "[5/9] Creando/asignando categorías...";
+            $this->errors[] = "[5/10] Creando/asignando categorías...";
             try {
                 $categories = [2];
                 if (isset($remoteProduct['associations']['categories']) && is_array($remoteProduct['associations']['categories'])) {
@@ -180,7 +180,7 @@ class ProductImporterService
             }
 
             // [6] Fabricante
-            $this->errors[] = "[6/9] Asignando fabricante...";
+            $this->errors[] = "[6/10] Asignando fabricante...";
             try {
                 $manufacturerName = $remoteProduct['manufacturer_name'] ?? null;
                 if ($manufacturerName) {
@@ -209,7 +209,7 @@ class ProductImporterService
             }
 
             // [7] Stock
-            $this->errors[] = "[7/9] Actualizando stock...";
+            $this->errors[] = "[7/10] Actualizando stock...";
             try {
                 $quantity = (int)($remoteProduct['quantity'] ?? 0);
                 if (isset($remoteProduct['stock_availables'][0]['quantity'])) {
@@ -230,7 +230,7 @@ class ProductImporterService
             }
 
             // [8] Imágenes (cover único + miniaturas + associateTo)
-            $this->errors[] = "[8/9] Importando imágenes...";
+            $this->errors[] = "[8/10] Importando imágenes...";
             try {
                 $this->apiService->setDebug(true);
                 $imageCount = $this->importImagesSimple($product, $remoteProduct);
@@ -243,13 +243,23 @@ class ProductImporterService
             }
 
             // [9] Características
-            $this->errors[] = "[9/9] Importando características...";
+            $this->errors[] = "[9/10] Importando características...";
             try {
                 $featureCount = $this->importFeaturesOptimized($product, $remoteProduct);
                 $this->errors[] = "  ✓ Características: $featureCount importadas/asignadas";
             } catch (\Exception $e) {
                 $warnings[] = "Características: ".$e->getMessage();
                 $this->errors[] = "  ERROR en características: ".$e->getMessage();
+            }
+
+            // [10] Combinaciones (variantes/atributos)
+            $this->errors[] = "[10/10] Importando combinaciones...";
+            try {
+                $combinationCount = $this->importCombinations($product, $remoteProduct);
+                $this->errors[] = "  ✓ Combinaciones: $combinationCount importadas/asignadas";
+            } catch (\Exception $e) {
+                $warnings[] = "Combinaciones: ".$e->getMessage();
+                $this->errors[] = "  ERROR en combinaciones: ".$e->getMessage();
             }
 
             $this->errors[] = "=== ✅ Importación completada exitosamente ===";
@@ -566,6 +576,250 @@ class ProductImporterService
             $results[$id] = $this->importProduct($id);
         }
         return $results;
+    }
+
+    /**
+     * Importar combinaciones (variantes/atributos) de un producto
+     */
+    private function importCombinations($product, $remoteProduct)
+    {
+        $imported = 0;
+        
+        // Verificar si el producto remoto tiene combinaciones
+        if (!isset($remoteProduct['associations']['combinations']) || 
+            !is_array($remoteProduct['associations']['combinations']) ||
+            empty($remoteProduct['associations']['combinations'])) {
+            $this->errors[] = "  No hay combinaciones en el producto remoto";
+            return 0;
+        }
+        
+        $remoteCombinations = $remoteProduct['associations']['combinations'];
+        $this->errors[] = "  Encontradas ".count($remoteCombinations)." combinaciones remotas";
+        
+        // Eliminar combinaciones locales existentes
+        $this->errors[] = "  Eliminando combinaciones locales existentes...";
+        $existingCombinations = $product->getAttributeCombinations((int)\Context::getContext()->language->id);
+        if (!empty($existingCombinations)) {
+            foreach ($existingCombinations as $existingComb) {
+                $combination = new \Combination((int)$existingComb['id_product_attribute']);
+                if (\Validate::isLoadedObject($combination)) {
+                    $combination->delete();
+                }
+            }
+            $this->errors[] = "  ✓ Eliminadas ".count($existingCombinations)." combinaciones existentes";
+        }
+        
+        // Cachés para evitar consultas repetidas
+        static $attributeCache = [];
+        static $attributeValueCache = [];
+        
+        // Importar cada combinación
+        foreach ($remoteCombinations as $combRow) {
+            try {
+                $remoteCombId = (int)($combRow['id'] ?? 0);
+                if (!$remoteCombId) { continue; }
+                
+                $this->errors[] = "  → Procesando combinación remota ID: $remoteCombId";
+                
+                // Obtener datos completos de la combinación remota
+                $remoteCombination = $this->apiService->getCombination($remoteCombId);
+                if (!$remoteCombination) {
+                    $this->errors[] = "    ✗ No se pudo obtener combinación $remoteCombId";
+                    continue;
+                }
+                
+                // Obtener atributos de la combinación
+                $productOptionValues = [];
+                if (isset($remoteCombination['associations']['product_option_values']) && 
+                    is_array($remoteCombination['associations']['product_option_values'])) {
+                    $productOptionValues = $remoteCombination['associations']['product_option_values'];
+                }
+                
+                if (empty($productOptionValues)) {
+                    $this->errors[] = "    ⚠ Combinación sin atributos, omitiendo";
+                    continue;
+                }
+                
+                // Crear/obtener atributos locales
+                $localAttributeIds = [];
+                foreach ($productOptionValues as $optValueRow) {
+                    $remoteValueId = (int)($optValueRow['id'] ?? 0);
+                    if (!$remoteValueId) { continue; }
+                    
+                    // Obtener información del valor de atributo remoto
+                    $remoteOptionValue = $attributeValueCache[$remoteValueId] 
+                        ?? $this->apiService->getProductOptionValue($remoteValueId);
+                    if (!$remoteOptionValue) { continue; }
+                    $attributeValueCache[$remoteValueId] = $remoteOptionValue;
+                    
+                    $remoteOptionId = (int)($remoteOptionValue['id_attribute_group'] ?? 0);
+                    if (!$remoteOptionId) { continue; }
+                    
+                    // Obtener información del atributo remoto
+                    $remoteOption = $attributeCache[$remoteOptionId]
+                        ?? $this->apiService->getProductOption($remoteOptionId);
+                    if (!$remoteOption) { continue; }
+                    $attributeCache[$remoteOptionId] = $remoteOption;
+                    
+                    $attributeName = $remoteOption['public_name'] ?? $remoteOption['name'] ?? '';
+                    $valueName = $remoteOptionValue['name'] ?? '';
+                    
+                    if ($attributeName === '' || $valueName === '') { continue; }
+                    
+                    // Crear/encontrar atributo local
+                    $localAttributeGroupId = $this->findOrCreateAttributeGroup($attributeName);
+                    if (!$localAttributeGroupId) {
+                        $this->errors[] = "    ✗ No se pudo crear grupo de atributos '$attributeName'";
+                        continue;
+                    }
+                    
+                    // Crear/encontrar valor de atributo local
+                    $localAttributeId = $this->findOrCreateAttribute($localAttributeGroupId, $valueName);
+                    if (!$localAttributeId) {
+                        $this->errors[] = "    ✗ No se pudo crear atributo '$valueName'";
+                        continue;
+                    }
+                    
+                    $localAttributeIds[] = $localAttributeId;
+                    $this->errors[] = "    ✓ Atributo: $attributeName = $valueName (Local ID: $localAttributeId)";
+                }
+                
+                if (empty($localAttributeIds)) {
+                    $this->errors[] = "    ⚠ No se crearon atributos locales para esta combinación";
+                    continue;
+                }
+                
+                // Crear la combinación local
+                $combination = new \Combination();
+                $combination->id_product = (int)$product->id;
+                $combination->reference = (string)($remoteCombination['reference'] ?? '');
+                $combination->ean13 = (string)($remoteCombination['ean13'] ?? '');
+                $combination->upc = (string)($remoteCombination['upc'] ?? '');
+                $combination->price = (float)($remoteCombination['price'] ?? 0);
+                $combination->unit_price_impact = (float)($remoteCombination['unit_price_impact'] ?? 0);
+                $combination->wholesale_price = (float)($remoteCombination['wholesale_price'] ?? 0);
+                $combination->weight = (float)($remoteCombination['weight'] ?? 0);
+                $combination->minimal_quantity = (int)($remoteCombination['minimal_quantity'] ?? 1);
+                $combination->default_on = (int)($remoteCombination['default_on'] ?? 0);
+                
+                if (!$combination->add()) {
+                    $this->errors[] = "    ✗ Error al crear combinación local";
+                    continue;
+                }
+                
+                $this->errors[] = "    ✓ Combinación creada (ID local: {$combination->id})";
+                
+                // Asociar atributos a la combinación
+                $combination->setAttributes($localAttributeIds);
+                
+                // Asignar stock a la combinación
+                $quantity = (int)($remoteCombination['quantity'] ?? 0);
+                \StockAvailable::setQuantity(
+                    (int)$product->id,
+                    (int)$combination->id,
+                    $quantity
+                );
+                $this->errors[] = "    ✓ Stock asignado: $quantity unidades";
+                
+                // Asignar imágenes de la combinación si existen
+                if (isset($remoteCombination['associations']['images']) && 
+                    is_array($remoteCombination['associations']['images'])) {
+                    $imageIds = [];
+                    foreach ($remoteCombination['associations']['images'] as $imgRow) {
+                        $imageIds[] = (int)($imgRow['id'] ?? 0);
+                    }
+                    $imageIds = array_filter($imageIds);
+                    
+                    if (!empty($imageIds)) {
+                        // Mapear IDs de imagen remotos a locales (esto requiere lógica adicional)
+                        // Por ahora lo dejamos como TODO
+                        $this->errors[] = "    ℹ Combinación tiene ".count($imageIds)." imágenes (no implementado aún)";
+                    }
+                }
+                
+                $imported++;
+                
+            } catch (\Exception $e) {
+                $this->errors[] = "  ✗ Error en combinación: ".$e->getMessage();
+            }
+        }
+        
+        $this->errors[] = "  Total: $imported combinaciones importadas";
+        return $imported;
+    }
+
+    /**
+     * Encontrar o crear grupo de atributos (AttributeGroup)
+     * Ejemplo: "Talla", "Color"
+     */
+    private function findOrCreateAttributeGroup($groupName)
+    {
+        $groupName = trim((string)$groupName);
+        if ($groupName === '') { return 0; }
+        
+        $name = pSQL($groupName, true);
+        $idLang = (int)\Configuration::get('PS_LANG_DEFAULT', null, null, null, 1);
+        
+        $sql = 'SELECT ag.`id_attribute_group` FROM `'._DB_PREFIX_.'attribute_group` ag
+                INNER JOIN `'._DB_PREFIX_.'attribute_group_lang` agl 
+                  ON (agl.`id_attribute_group`=ag.`id_attribute_group`)
+                WHERE agl.`id_lang`='.$idLang.' AND agl.`name`=\''.$name.'\'';
+        $groupId = (int)\Db::getInstance()->getValue($sql);
+        
+        if ($groupId) { return $groupId; }
+        
+        // Crear nuevo grupo de atributos
+        $attributeGroup = new \AttributeGroup();
+        $attributeGroup->group_type = 'select'; // o 'radio', 'color'
+        foreach (\Language::getLanguages(false) as $lang) {
+            $attributeGroup->name[(int)$lang['id_lang']] = $groupName;
+            $attributeGroup->public_name[(int)$lang['id_lang']] = $groupName;
+        }
+        
+        if ($attributeGroup->add()) {
+            $this->errors[] = "      + Grupo de atributos CREADO: '$groupName' (ID: {$attributeGroup->id})";
+            return (int)$attributeGroup->id;
+        }
+        
+        return 0;
+    }
+
+    /**
+     * Encontrar o crear valor de atributo (Attribute)
+     * Ejemplo: "S", "M", "L", "Rojo", "Azul"
+     */
+    private function findOrCreateAttribute($attributeGroupId, $attributeName)
+    {
+        $attributeGroupId = (int)$attributeGroupId;
+        $attributeName = trim((string)$attributeName);
+        if ($attributeGroupId <= 0 || $attributeName === '') { return 0; }
+        
+        $name = pSQL($attributeName, true);
+        $idLang = (int)\Configuration::get('PS_LANG_DEFAULT', null, null, null, 1);
+        
+        $sql = 'SELECT a.`id_attribute` FROM `'._DB_PREFIX_.'attribute` a
+                INNER JOIN `'._DB_PREFIX_.'attribute_lang` al 
+                  ON (al.`id_attribute`=a.`id_attribute`)
+                WHERE a.`id_attribute_group`='.$attributeGroupId.' 
+                  AND al.`id_lang`='.$idLang.' 
+                  AND al.`name`=\''.$name.'\'';
+        $attributeId = (int)\Db::getInstance()->getValue($sql);
+        
+        if ($attributeId) { return $attributeId; }
+        
+        // Crear nuevo valor de atributo
+        $attribute = new \Attribute();
+        $attribute->id_attribute_group = $attributeGroupId;
+        foreach (\Language::getLanguages(false) as $lang) {
+            $attribute->name[(int)$lang['id_lang']] = $attributeName;
+        }
+        
+        if ($attribute->add()) {
+            $this->errors[] = "      + Valor de atributo CREADO: '$attributeName' (ID: {$attribute->id})";
+            return (int)$attribute->id;
+        }
+        
+        return 0;
     }
 
     private function getTaxRulesGroupIdByName($groupName)

@@ -391,6 +391,93 @@ class PrestaShopApiService
         }
     }
 
+    /**
+     * Obtener una combinación específica por ID
+     */
+    public function getCombination($combinationId)
+    {
+        try {
+            $data = $this->makeRequest("combinations/{$combinationId}", ['display' => 'full']);
+            
+            if (isset($data['combination'])) {
+                return $data['combination'];
+            } elseif (isset($data['combinations'][0])) {
+                return $data['combinations'][0];
+            }
+            return null;
+        } catch (\Exception $e) {
+            $this->log("Error en getCombination($combinationId): " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Obtener atributo (product_option) por ID
+     * Ejemplo: "Talla", "Color"
+     */
+    public function getProductOption($optionId)
+    {
+        try {
+            $data = $this->makeRequest("product_options/{$optionId}", ['display' => 'full']);
+            
+            $row = null;
+            if (isset($data['product_option'])) {
+                $row = $data['product_option'];
+            } elseif (!empty($data['product_options'][0])) {
+                $row = $data['product_options'][0];
+            }
+            
+            if (!$row) {
+                return null;
+            }
+            
+            // Normalizar nombre
+            if (isset($row['name'])) {
+                $row['name'] = $this->normalizeLangField($row['name'], 1);
+            }
+            if (isset($row['public_name'])) {
+                $row['public_name'] = $this->normalizeLangField($row['public_name'], 1);
+            }
+            
+            return $row;
+        } catch (\Exception $e) {
+            $this->log("Error en getProductOption($optionId): " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Obtener valor de atributo (product_option_value) por ID
+     * Ejemplo: "S", "M", "L", "Rojo", "Azul"
+     */
+    public function getProductOptionValue($valueId)
+    {
+        try {
+            $data = $this->makeRequest("product_option_values/{$valueId}", ['display' => 'full']);
+            
+            $row = null;
+            if (isset($data['product_option_value'])) {
+                $row = $data['product_option_value'];
+            } elseif (!empty($data['product_option_values'][0])) {
+                $row = $data['product_option_values'][0];
+            }
+            
+            if (!$row) {
+                return null;
+            }
+            
+            // Normalizar nombre
+            if (isset($row['name'])) {
+                $row['name'] = $this->normalizeLangField($row['name'], 1);
+            }
+            
+            return $row;
+        } catch (\Exception $e) {
+            $this->log("Error en getProductOptionValue($valueId): " . $e->getMessage());
+            return null;
+        }
+    }
+
        /** Normaliza un campo multilenguaje a string (devuelve el de id_lang=1 si existe). */
     private function normalizeLangField($field, $preferredIdLang = 1)
     {
