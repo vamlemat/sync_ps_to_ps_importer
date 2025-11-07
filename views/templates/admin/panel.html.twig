@@ -40,6 +40,8 @@
       </div>
       <div class="card-body">
         <form method="get" class="form-inline">
+          <input type="hidden" name="token" value="{{ adminToken }}">
+          
           <div class="form-group mr-3">
             <label for="search" class="mr-2">Buscar:</label>
             <input type="text" class="form-control" id="search" name="search" placeholder="Nombre del producto" value="{{ currentSearch }}">
@@ -61,7 +63,7 @@
           </button>
           
           {% if currentSearch or currentCategory %}
-          <a href="?" class="btn btn-secondary ml-2">
+          <a href="?token={{ adminToken }}" class="btn btn-secondary ml-2">
             <i class="material-icons">clear</i> Limpiar filtros
           </a>
           {% endif %}
@@ -179,7 +181,7 @@
               {# Botón Anterior #}
               <li class="page-item {% if not pagination.has_previous %}disabled{% endif %}">
                 {% if pagination.has_previous %}
-                  <a class="page-link" href="?offset={{ pagination.previous_offset }}&limit={{ pagination.limit }}{% if currentCategory %}&category={{ currentCategory }}{% endif %}{% if currentSearch %}&search={{ currentSearch }}{% endif %}" aria-label="Anterior">
+                  <a class="page-link" href="?offset={{ pagination.previous_offset }}&limit={{ pagination.limit }}{% if currentCategory %}&category={{ currentCategory }}{% endif %}{% if currentSearch %}&search={{ currentSearch }}{% endif %}&token={{ adminToken }}" aria-label="Anterior">
                     <span aria-hidden="true">&laquo;</span>
                     <span class="sr-only">Anterior</span>
                   </a>
@@ -197,7 +199,7 @@
               {# Primera página si no está visible #}
               {% if start_page > 1 %}
                 <li class="page-item">
-                  <a class="page-link" href="?offset=0&limit={{ pagination.limit }}{% if currentCategory %}&category={{ currentCategory }}{% endif %}{% if currentSearch %}&search={{ currentSearch }}{% endif %}">1</a>
+                  <a class="page-link" href="?offset=0&limit={{ pagination.limit }}{% if currentCategory %}&category={{ currentCategory }}{% endif %}{% if currentSearch %}&search={{ currentSearch }}{% endif %}&token={{ adminToken }}">1</a>
                 </li>
                 {% if start_page > 2 %}
                   <li class="page-item disabled"><span class="page-link">...</span></li>
@@ -208,7 +210,7 @@
               {% for page in start_page..end_page %}
                 {% set page_offset = (page - 1) * pagination.limit %}
                 <li class="page-item {% if page == pagination.current_page %}active{% endif %}">
-                  <a class="page-link" href="?offset={{ page_offset }}&limit={{ pagination.limit }}{% if currentCategory %}&category={{ currentCategory }}{% endif %}{% if currentSearch %}&search={{ currentSearch }}{% endif %}">{{ page }}</a>
+                  <a class="page-link" href="?offset={{ page_offset }}&limit={{ pagination.limit }}{% if currentCategory %}&category={{ currentCategory }}{% endif %}{% if currentSearch %}&search={{ currentSearch }}{% endif %}&token={{ adminToken }}">{{ page }}</a>
                 </li>
               {% endfor %}
 
@@ -219,14 +221,14 @@
                 {% endif %}
                 <li class="page-item">
                   {% set last_offset = (pagination.total_pages - 1) * pagination.limit %}
-                  <a class="page-link" href="?offset={{ last_offset }}&limit={{ pagination.limit }}{% if currentCategory %}&category={{ currentCategory }}{% endif %}{% if currentSearch %}&search={{ currentSearch }}{% endif %}">{{ pagination.total_pages }}</a>
+                  <a class="page-link" href="?offset={{ last_offset }}&limit={{ pagination.limit }}{% if currentCategory %}&category={{ currentCategory }}{% endif %}{% if currentSearch %}&search={{ currentSearch }}{% endif %}&token={{ adminToken }}">{{ pagination.total_pages }}</a>
                 </li>
               {% endif %}
 
               {# Botón Siguiente #}
               <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
                 {% if pagination.has_next %}
-                  <a class="page-link" href="?offset={{ pagination.next_offset }}&limit={{ pagination.limit }}{% if currentCategory %}&category={{ currentCategory }}{% endif %}{% if currentSearch %}&search={{ currentSearch }}{% endif %}" aria-label="Siguiente">
+                  <a class="page-link" href="?offset={{ pagination.next_offset }}&limit={{ pagination.limit }}{% if currentCategory %}&category={{ currentCategory }}{% endif %}{% if currentSearch %}&search={{ currentSearch }}{% endif %}&token={{ adminToken }}" aria-label="Siguiente">
                     <span aria-hidden="true">&raquo;</span>
                     <span class="sr-only">Siguiente</span>
                   </a>
@@ -356,6 +358,13 @@ tbody tr:hover {
         const url = new URL(window.location.href);
         url.searchParams.set('limit', newLimit);
         url.searchParams.set('offset', '0'); // Volver a la primera página
+        
+        // Asegurar que el token esté presente
+        const currentToken = url.searchParams.get('token');
+        if (!currentToken) {
+          url.searchParams.set('token', '{{ adminToken }}');
+        }
+        
         console.log('Cambiando límite a:', newLimit);
         window.location.href = url.toString();
       });
