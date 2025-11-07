@@ -514,6 +514,8 @@ class ProductImporterService
                 $this->errors[] = "    Categoría remota $remoteCategoryId no encontrada";
                 return 2;
             }
+            
+            // Extraer nombre (multiidioma)
             $categoryName = is_array($remoteCategory['name'] ?? null)
                 ? ($remoteCategory['name'][1] ?? reset($remoteCategory['name']))
                 : ($remoteCategory['name'] ?? ('Categoría '.$remoteCategoryId));
@@ -539,17 +541,53 @@ class ProductImporterService
 
             $category = new \Category();
             $category->id_parent = $localParentId;
-            $category->active = 1;
+            $category->active = (int)($remoteCategory['active'] ?? 1);
             $category->is_root_category = false;
+            
+            // Datos multiidioma
             foreach (\Language::getLanguages(false) as $lang) {
                 $id = (int)$lang['id_lang'];
-                $category->name[$id] = $categoryName;
-                $category->link_rewrite[$id] = \Tools::str2url($categoryName);
-                $category->description[$id] = '';
+                
+                // Nombre
+                $category->name[$id] = is_array($remoteCategory['name'] ?? null)
+                    ? ($remoteCategory['name'][$id] ?? $categoryName)
+                    : $categoryName;
+                
+                // Descripción (NUEVO)
+                $category->description[$id] = is_array($remoteCategory['description'] ?? null)
+                    ? ($remoteCategory['description'][$id] ?? '')
+                    : ($remoteCategory['description'] ?? '');
+                
+                // Link rewrite
+                $remoteLinkRewrite = is_array($remoteCategory['link_rewrite'] ?? null)
+                    ? ($remoteCategory['link_rewrite'][$id] ?? null)
+                    : ($remoteCategory['link_rewrite'] ?? null);
+                $category->link_rewrite[$id] = $remoteLinkRewrite ?: \Tools::str2url($category->name[$id]);
+                
+                // Meta título (NUEVO - SEO)
+                $category->meta_title[$id] = is_array($remoteCategory['meta_title'] ?? null)
+                    ? ($remoteCategory['meta_title'][$id] ?? '')
+                    : ($remoteCategory['meta_title'] ?? '');
+                
+                // Meta descripción (NUEVO - SEO)
+                $category->meta_description[$id] = is_array($remoteCategory['meta_description'] ?? null)
+                    ? ($remoteCategory['meta_description'][$id] ?? '')
+                    : ($remoteCategory['meta_description'] ?? '');
+                
+                // Meta keywords (NUEVO - SEO)
+                $category->meta_keywords[$id] = is_array($remoteCategory['meta_keywords'] ?? null)
+                    ? ($remoteCategory['meta_keywords'][$id] ?? '')
+                    : ($remoteCategory['meta_keywords'] ?? '');
             }
 
             if ($category->add()) {
                 $this->errors[] = "    ✓ CREADA: '$categoryName' (ID local: {$category->id}, Padre: $localParentId)";
+                
+                // Importar imagen de la categoría (NUEVO)
+                if (!empty($remoteCategory['id'])) {
+                    $this->importCategoryImage($category->id, (int)$remoteCategory['id']);
+                }
+                
                 $categoryCache[$remoteCategoryId] = (int)$category->id;
                 return (int)$category->id;
             } else {
@@ -559,6 +597,54 @@ class ProductImporterService
         } catch (\Exception $e) {
             $this->errors[] = "    Error en categoría $remoteCategoryId: ".$e->getMessage();
             return 2;
+        }
+    }
+    
+    /**
+     * Importar imagen de categoría
+     */
+    private function importCategoryImage($localCategoryId, $remoteCategoryId)
+    {
+        try {
+            // Intentar descargar la imagen de la categoría
+            $imageUrl = $this->apiService->getApiUrl() . "/api/images/categories/{$remoteCategoryId}";
+            $imageData = $this->apiService->downloadCategoryImage($remoteCategoryId);
+            
+            if (!$imageData || strlen($imageData) < 100) {
+                // No hay imagen o está corrupta
+                return false;
+            }
+            
+            // Ruta donde guardar la imagen
+            $categoryPath = _PS_CAT_IMG_DIR_ . $localCategoryId . '.jpg';
+            
+            // Guardar imagen
+            if (!file_put_contents($categoryPath, $imageData)) {
+                $this->errors[] = "      ⚠ No se pudo guardar imagen de categoría";
+                return false;
+            }
+            
+            // Generar miniaturas
+            try {
+                $imagesTypes = \ImageType::getImagesTypes('categories');
+                foreach ($imagesTypes as $imageType) {
+                    $thumbPath = _PS_CAT_IMG_DIR_ . $localCategoryId . '-' . stripslashes($imageType['name']) . '.jpg';
+                    \ImageManager::resize(
+                        $categoryPath,
+                        $thumbPath,
+                        (int)$imageType['width'],
+                        (int)$imageType['height']
+                    );
+                }
+                $this->errors[] = "      ✓ Imagen de categoría importada";
+                return true;
+            } catch (\Exception $e) {
+                $this->errors[] = "      ⚠ Error en miniaturas de categoría: ".$e->getMessage();
+                return false;
+            }
+        } catch (\Exception $e) {
+            // Error silencioso, no queremos bloquear la creación de la categoría
+            return false;
         }
     }
 

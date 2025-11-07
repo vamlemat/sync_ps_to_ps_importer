@@ -376,6 +376,77 @@ class PrestaShopApiService
     }
 
     /**
+     * Descargar imagen de categoría
+     */
+    public function downloadCategoryImage($categoryId)
+    {
+        $url = $this->apiUrl . "/api/images/categories/" . (int)$categoryId;
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+
+        // Auth básica
+        curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+        curl_setopt($ch, CURLOPT_USERPWD, $this->apiKey . ':');
+
+        // Retorno + compresión
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_ENCODING, '');
+
+        // Timeouts
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+
+        // Redirecciones
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_MAXREDIRS, 5);
+
+        // IPv4
+        curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+
+        // SSL permisivo
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+
+        // Cabeceras
+        $headers = ['Accept: image/jpeg', 'Accept-Encoding: gzip'];
+        if (!empty($this->domain)) {
+            $headers[] = 'Host: ' . $this->domain;
+        }
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+
+        // Pin DNS
+        if ($this->customIp && $this->domain) {
+            $parsed = parse_url($url);
+            $scheme = $parsed['scheme'] ?? 'https';
+            $port = $parsed['port'] ?? ($scheme === 'https' ? 443 : 80);
+            curl_setopt($ch, CURLOPT_RESOLVE, [ "{$this->domain}:{$port}:{$this->customIp}" ]);
+            $this->log("Download category image using custom IP: {$this->domain}:{$port} -> {$this->customIp}");
+        }
+
+        $imageData = curl_exec($ch);
+        $httpCode  = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err       = curl_error($ch);
+
+        $this->log("Download category image - URL: $url");
+        $this->log("Download category image - HTTP Code: $httpCode");
+        if ($imageData !== false) {
+            $this->log("Download category image - Size: " . strlen((string)$imageData) . " bytes");
+        }
+        if ($err) {
+            $this->log("Download category image - Error: $err");
+        }
+
+        curl_close($ch);
+
+        if ($httpCode !== 200 || $imageData === false) {
+            return false;
+        }
+
+        return $imageData;
+    }
+
+    /**
      * Obtener combinaciones (atributos) de un producto
      */
     public function getProductCombinations($productId)
