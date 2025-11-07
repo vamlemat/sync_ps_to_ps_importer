@@ -82,6 +82,9 @@
           Productos disponibles para importar
         </h3>
         <div class="card-header-actions">
+          <a href="{{ path('admin_sync_ps_to_ps_importer_logs') }}" class="btn btn-outline-info mr-2">
+            <i class="material-icons">description</i> Ver Logs
+          </a>
           <button id="importSelected" class="btn btn-success">
             <i class="material-icons">cloud_download</i> Importar seleccionados
           </button>
@@ -272,12 +275,17 @@
 <style>
 .card-header-actions {
   margin-left: auto;
+  display: flex;
+  gap: 0.5rem;
 }
 .product-checkbox {
   cursor: pointer;
 }
 tbody tr:hover {
   background-color: #f8f9fa;
+}
+.mr-2 {
+  margin-right: 0.5rem;
 }
 
 /* Estilos de paginación */

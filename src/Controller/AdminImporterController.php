@@ -240,4 +240,137 @@ class AdminImporterController extends AbstractController
             return new JsonResponse(['success' => false, 'message' => $e->getMessage()]);
         }
     }
+
+    public function logsAction(Request $request)
+    {
+        // Limpiar logs antiguos automáticamente
+        $this->cleanOldLogs();
+
+        $logsDir = _PS_MODULE_DIR_ . 'sync_ps_to_ps_importer/logs/';
+        $logs = [];
+        $selectedLog = $request->query->get('file', '');
+
+        // Obtener lista de archivos de log
+        if (is_dir($logsDir)) {
+            $files = scandir($logsDir);
+            foreach ($files as $file) {
+                if ($file !== '.' && $file !== '..' && $file !== 'index.php' && strpos($file, '.txt') !== false) {
+                    $filePath = $logsDir . $file;
+                    $logs[] = [
+                        'name' => $file,
+                        'size' => filesize($filePath),
+                        'date' => date('Y-m-d H:i:s', filemtime($filePath)),
+                        'timestamp' => filemtime($filePath)
+                    ];
+                }
+            }
+        }
+
+        // Ordenar por fecha (más reciente primero)
+        usort($logs, function($a, $b) {
+            return $b['timestamp'] - $a['timestamp'];
+        });
+
+        // Contenido del log seleccionado
+        $logContent = '';
+        $logFile = '';
+        if ($selectedLog && preg_match('/^[a-zA-Z0-9_\-\.]+\.txt$/', $selectedLog)) {
+            $logFile = $selectedLog;
+            $logPath = $logsDir . $selectedLog;
+            if (file_exists($logPath)) {
+                $logContent = file_get_contents($logPath);
+            } else {
+                $logContent = 'Archivo no encontrado.';
+            }
+        } elseif (!empty($logs)) {
+            // Si no hay seleccionado, mostrar el más reciente
+            $logFile = $logs[0]['name'];
+            $logPath = $logsDir . $logFile;
+            $logContent = file_get_contents($logPath);
+        }
+
+        // Obtener token de seguridad
+        $token = \Tools::getAdminTokenLite('AdminSyncPsToPsImporter');
+
+        return $this->render('@Modules/sync_ps_to_ps_importer/views/templates/admin/logs.html.twig', [
+            'layoutTitle' => 'Logs de Importación',
+            'requireBulkActions' => false,
+            'showContentHeader' => true,
+            'enableSidebar' => true,
+            'help_link' => false,
+            'logs' => $logs,
+            'selectedLog' => $logFile,
+            'logContent' => $logContent,
+            'adminToken' => $token,
+        ]);
+    }
+
+    public function clearLogsAction(Request $request)
+    {
+        if (!$request->isXmlHttpRequest()) {
+            return new JsonResponse(['success' => false, 'message' => 'Petición inválida']);
+        }
+
+        try {
+            $logsDir = _PS_MODULE_DIR_ . 'sync_ps_to_ps_importer/logs/';
+            $deleted = 0;
+
+            if (is_dir($logsDir)) {
+                $files = scandir($logsDir);
+                foreach ($files as $file) {
+                    if ($file !== '.' && $file !== '..' && $file !== 'index.php' && strpos($file, '.txt') !== false) {
+                        $filePath = $logsDir . $file;
+                        if (unlink($filePath)) {
+                            $deleted++;
+                        }
+                    }
+                }
+            }
+
+            return new JsonResponse([
+                'success' => true,
+                'message' => "$deleted archivo(s) de log eliminado(s) correctamente"
+            ]);
+        } catch (\Throwable $e) {
+            return new JsonResponse([
+                'success' => false,
+                'message' => 'Error al eliminar logs: ' . $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Limpia logs antiguos (más de 1 día)
+     */
+    private function cleanOldLogs()
+    {
+        try {
+            $logsDir = _PS_MODULE_DIR_ . 'sync_ps_to_ps_importer/logs/';
+            $maxAge = 86400; // 24 horas en segundos
+            $now = time();
+            $deleted = 0;
+
+            if (is_dir($logsDir)) {
+                $files = scandir($logsDir);
+                foreach ($files as $file) {
+                    if ($file !== '.' && $file !== '..' && $file !== 'index.php' && strpos($file, '.txt') !== false) {
+                        $filePath = $logsDir . $file;
+                        $fileAge = $now - filemtime($filePath);
+                        
+                        // Si el archivo tiene más de 1 día, eliminarlo
+                        if ($fileAge > $maxAge) {
+                            if (@unlink($filePath)) {
+                                $deleted++;
+                            }
+                        }
+                    }
+                }
+            }
+
+            return $deleted;
+        } catch (\Throwable $e) {
+            // Error silencioso, no queremos interrumpir la navegación
+            return 0;
+        }
+    }
 }

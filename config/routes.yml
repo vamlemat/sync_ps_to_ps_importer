@@ -17,3 +17,15 @@ admin_sync_ps_to_ps_importer_test:
   methods: [POST]
   defaults:
     _controller: 'SyncPsToPsImporter\Controller\AdminImporterController::testConnectionAction'
+
+admin_sync_ps_to_ps_importer_logs:
+  path: /sync-ps-to-ps/logs
+  methods: [GET]
+  defaults:
+    _controller: 'SyncPsToPsImporter\Controller\AdminImporterController::logsAction'
+
+admin_sync_ps_to_ps_importer_clear_logs:
+  path: /sync-ps-to-ps/clear-logs
+  methods: [POST]
+  defaults:
+    _controller: 'SyncPsToPsImporter\Controller\AdminImporterController::clearLogsAction'
