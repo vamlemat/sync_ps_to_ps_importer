@@ -68,6 +68,21 @@
           </a>
           {% endif %}
         </form>
+        
+        {# Filtros rápidos #}
+        <div class="mt-3">
+          <div class="btn-group btn-group-sm" role="group">
+            <button type="button" class="btn btn-outline-secondary" id="filterAll">
+              <i class="material-icons">list</i> Todos
+            </button>
+            <button type="button" class="btn btn-outline-warning" id="filterNew">
+              <i class="material-icons">fiber_new</i> Solo Nuevos
+            </button>
+            <button type="button" class="btn btn-outline-success" id="filterImported">
+              <i class="material-icons">check_circle</i> Solo Importados
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -132,6 +147,7 @@
                 <th>Precio</th>
                 <th>Stock</th>
                 <th>Estado</th>
+                <th width="100" class="text-center">Importado</th>
               </tr>
             </thead>
             <tbody>
@@ -168,6 +184,19 @@
                     <span class="badge badge-success">Activo</span>
                   {% else %}
                     <span class="badge badge-secondary">Inactivo</span>
+                  {% endif %}
+                </td>
+                <td class="text-center">
+                  {% if product.is_imported %}
+                    <span class="badge badge-success" title="Producto ya importado (ID local: {{ product.local_id }})">
+                      <i class="material-icons" style="font-size: 16px; vertical-align: middle;">check_circle</i>
+                      Sí
+                    </span>
+                  {% else %}
+                    <span class="badge badge-warning" title="Producto no importado aún">
+                      <i class="material-icons" style="font-size: 16px; vertical-align: middle;">fiber_new</i>
+                      Nuevo
+                    </span>
                   {% endif %}
                 </td>
               </tr>
@@ -327,6 +356,44 @@ tbody tr:hover {
 .text-muted strong {
   color: #495057;
 }
+
+/* Filtros rápidos */
+.btn-group-sm .btn {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.btn-group .btn.active {
+  background-color: #007bff;
+  color: white;
+  border-color: #007bff;
+}
+
+.btn-outline-secondary.active {
+  background-color: #6c757d !important;
+  border-color: #6c757d !important;
+}
+
+.btn-outline-warning.active {
+  background-color: #ffc107 !important;
+  border-color: #ffc107 !important;
+  color: #212529 !important;
+}
+
+.btn-outline-success.active {
+  background-color: #28a745 !important;
+  border-color: #28a745 !important;
+  color: white !important;
+}
+
+.mt-3 {
+  margin-top: 1rem;
+}
+
+.badge i.material-icons {
+  vertical-align: middle;
+  margin-right: 2px;
+}
 </style>
 
 <script>
@@ -405,6 +472,52 @@ tbody tr:hover {
     
     // Llamar una vez al inicio para actualizar el estado
     updateImportButton();
+    
+    // Filtros rápidos por estado de importación
+    const filterAll = document.getElementById('filterAll');
+    const filterNew = document.getElementById('filterNew');
+    const filterImported = document.getElementById('filterImported');
+    const tableRows = document.querySelectorAll('tbody tr');
+    
+    if (filterAll && filterNew && filterImported) {
+      // Filtro: Mostrar todos
+      filterAll.addEventListener('click', function() {
+        tableRows.forEach(row => row.style.display = '');
+        setActiveFilter(this);
+        updateImportButton();
+      });
+      
+      // Filtro: Solo nuevos (no importados)
+      filterNew.addEventListener('click', function() {
+        tableRows.forEach(row => {
+          const badge = row.querySelector('.badge-warning');
+          row.style.display = badge ? '' : 'none';
+        });
+        setActiveFilter(this);
+        updateImportButton();
+      });
+      
+      // Filtro: Solo importados
+      filterImported.addEventListener('click', function() {
+        tableRows.forEach(row => {
+          const badge = row.querySelector('.badge-success:not(.badge-success:last-of-type)'); // No el de "Activo"
+          const importedBadge = row.cells[row.cells.length - 1].querySelector('.badge-success');
+          row.style.display = importedBadge ? '' : 'none';
+        });
+        setActiveFilter(this);
+        updateImportButton();
+      });
+      
+      function setActiveFilter(button) {
+        filterAll.classList.remove('active');
+        filterNew.classList.remove('active');
+        filterImported.classList.remove('active');
+        button.classList.add('active');
+      }
+      
+      // Activar "Todos" por defecto
+      filterAll.classList.add('active');
+    }
     
     function updateImportButton() {
       const selected = Array.from(productCheckboxes).filter(cb => cb.checked);
